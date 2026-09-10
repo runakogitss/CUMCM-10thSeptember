@@ -1,0 +1,28 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Excel lock files & temporary data (CRITICAL)
+~$*.xlsx
+~$*.xls
+*.tmp
+
+# IDE settings
+.vscode/
+.idea/
+
+# Large intermediate log files (if any)
+*.log

@@ -21,7 +21,7 @@ def run_q2_simulation(tariffs_matrix, load_actual_all, pv_actual_all, start_day=
         t_end = t_start + STEPS_PER_DAY
         
         # Current Day Tariffs & Actuals
-        tariff_d = tariffs_matrix[d] if tariffs_matrix.ndim == 2 else tariffs_matrix
+        tariff_d = tariffs_matrix[day_idx] if tariffs_matrix.ndim == 2 else tariffs_matrix
         load_act_d = load_actual_all[t_start:t_end]
         pv_act_d = pv_actual_all[t_start:t_end]
         

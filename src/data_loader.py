@@ -13,6 +13,21 @@ def load_annex1_tariffs():
     df = pd.read_excel(path)
     return df.iloc[:, 1].values.astype(float)  # 144 steps tariff vector
 
+def load_annex1_data():
+    """Loads all four Annex 1 series as 1D float arrays of length 144.
+
+    Returns (price, load_kw, pv_kw):
+      * price  - column 1, electricity tariff (yuan/kWh)
+      * load_kw - column 2, community load (kW)
+      * pv_kw   - column 3, forecasted PV power (kW)
+    """
+    path = os.path.join(DATA_DIR, "Annex1.xlsx")
+    df = pd.read_excel(path)
+    price = df.iloc[:, 1].values.astype(float)
+    load_kw = df.iloc[:, 2].values.astype(float)
+    pv_kw = df.iloc[:, 3].values.astype(float)
+    return price, load_kw, pv_kw
+
 def load_annex2_actuals():
     """Loads 2025 full-year actual Load and PV power data (10-min resolution).
 

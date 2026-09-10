@@ -5,19 +5,18 @@ from src.data_loader import (
 from src.solver_q1 import solve_q1
 from src.simulator_q2 import run_q2_simulation
 from src.simulator_q3 import run_q3_simulation
-from src.export_tools import export_result
+from src.export_tools import export_result, export_q1_result
 
 def main():
     print("=== Starting CUMCM 2026 Problem C Microgrid Optimization Pipeline ===")
     
     # 1. Question 1 Solution
     res_q1 = solve_q1()
-    export_result("result1.xlsx", {
-        "Grid_Purchase_kWh": res_q1["p_grid_kw"] * (1/6),
-        "Battery_Charge_kWh": res_q1["p_chg_kw"] * (1/6),
-        "Battery_Discharge_kWh": res_q1["p_dis_kw"] * (1/6),
-        "Battery_SOC_kWh": res_q1["e_bat_kwh"]
-    })
+    export_q1_result(res_q1)
+    print(f"Q1 total electricity cost: {res_q1['total_cost']:.2f} yuan")
+    print(f"Q1 total purchased energy: {res_q1['total_purchased_kwh']:.2f} kWh")
+    print(f"Q1 terminal battery energy: {res_q1['terminal_energy']:.2f} kWh "
+          f"(must equal {res_q1['e_bat_kwh'][-1]:.2f})")
     
     # 2. Question 2 Solution
     tariffs_q1 = load_annex1_tariffs()

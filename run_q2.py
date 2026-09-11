@@ -2,7 +2,7 @@ import pandas as pd
 
 from src.data_loader import load_annex1_tariffs, load_annex2_actuals
 from src.simulator_q2 import run_q2_simulation, run_q2_baseline_simulation
-from src.export_tools import export_q2_result, RESULTS_DIR
+from src.export_tools import export_q2_result, verify_q2_export, RESULTS_DIR
 
 
 def main():
@@ -16,6 +16,7 @@ def main():
     res = run_q2_simulation(tariffs, load_act, pv_act)
 
     export_q2_result(res)
+    verify_q2_export(f"{RESULTS_DIR}/Q2_optimized.xlsx", res["total_em_kwh"], res["total_cost"])
 
     savings = baseline_cost - res["total_cost"]
     summary = pd.DataFrame({

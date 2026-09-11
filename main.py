@@ -10,9 +10,10 @@ from src.data_loader import (
 from src.solver_q1 import solve_q1
 from src.simulator_q2 import run_q2_simulation, run_q2_baseline_simulation
 from src.mpc_q3 import run_q3_simulation
+from src.solver_q4 import solve_q4_2, solve_q4_3
 from src.export_tools import (
-    export_result, export_q1_result, export_q2_result,
-    verify_q2_export, RESULTS_DIR,
+    export_result, export_q1_result, export_q2_result, export_q4_2_result,
+    export_q4_3_result, verify_q2_export, RESULTS_DIR,
 )
 
 
@@ -52,6 +53,37 @@ def _print_q3_summary(res, q2_baseline_cost):
     summary_xlsx_path = os.path.join(RESULTS_DIR, "q3_summary.xlsx")
     summary.to_excel(summary_xlsx_path, index=False)
     print(f"[SUCCESS] Q3 summary saved to: {summary_path} and {summary_xlsx_path}")
+    return summary
+
+
+def _print_q4_summary(res_q4_2, res_q4_3):
+    summary = pd.DataFrame({
+        "Metric": [
+            "Q4-2 Total Cost (Yuan)",
+            "Q4-2 Emergency Volume (kWh)",
+            "Q4-2 Emergency Penalty (Yuan)",
+            "Q4-3 Total Cost (Yuan)",
+            "Q4-3 Emergency Volume (kWh)",
+            "Q4-3 Emergency Penalty (Yuan)",
+        ],
+        "Value": [
+            round(res_q4_2["total_cost"], 2),
+            round(res_q4_2["total_em_kwh"], 2),
+            round(res_q4_2["total_emergency_cost"], 2),
+            round(res_q4_3["total_cost"], 2),
+            round(res_q4_3["total_em_kwh"], 2),
+            round(res_q4_3["total_emergency_cost"], 2),
+        ],
+    })
+    print("\n=== Question 4 Summary (Dynamic Tariffs) ===")
+    print(summary.to_string(index=False))
+
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    summary_path = os.path.join(RESULTS_DIR, "q4_summary.csv")
+    summary.to_csv(summary_path, index=False)
+    summary_xlsx_path = os.path.join(RESULTS_DIR, "q4_summary.xlsx")
+    summary.to_excel(summary_xlsx_path, index=False)
+    print(f"[SUCCESS] Q4 summary saved to: {summary_path} and {summary_xlsx_path}")
     return summary
 
 
@@ -131,20 +163,12 @@ def main():
 
     # 4. Question 4 (Dynamic Tariffs on Q2/Q3 Frameworks)
     dynamic_tariffs = load_annex4_dynamic_tariffs()
-    res_q4_2 = run_q2_simulation(dynamic_tariffs, load_act, pv_act)
-    export_result("result4-2.xlsx", {
-        "P_plan_kWh": res_q4_2["p_plan_kwh"],
-        "P_em_kWh": res_q4_2["p_em_kwh"],
-        "E_bat_kWh": res_q4_2["e_bat_kwh"]
-    })
+    res_q4_2 = solve_q4_2(dynamic_tariffs, load_act, pv_act)
+    export_q4_2_result(res_q4_2)
 
-    res_q4_3 = run_q3_simulation(dynamic_tariffs, load_act, pv_act, pv_forecast)
-    export_result("result4-3.xlsx", {
-        "P_plan_kWh": res_q4_3["p_plan_kwh"],
-        "P_adj_kWh": res_q4_3["p_adj_kwh"],
-        "P_em_kWh": res_q4_3["p_em_kwh"],
-        "E_bat_kWh": res_q4_3["e_bat_kwh"]
-    })
+    res_q4_3 = solve_q4_3(dynamic_tariffs, load_act, pv_act, pv_forecast)
+    export_q4_3_result(res_q4_3, dynamic_tariffs)
+    _print_q4_summary(res_q4_2, res_q4_3)
 
     print("=== All Question Pipelines Executed Successfully ===")
 

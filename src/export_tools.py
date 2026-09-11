@@ -91,16 +91,69 @@ def export_q1_result(res):
     return out_path
 
 
+def _fill_plan_sheet(ws, num_days, steps, p_series, daily_energy, daily_cost):
+    """Fills a 计划购电量-style sheet (date + 144 kWh steps + daily totals)."""
+    for d in range(num_days):
+        row = 2 + d
+        day = p_series[d * steps:(d + 1) * steps]
+        for t in range(steps):
+            ws.cell(row=row, column=2 + t, value=float(round(day[t], 4)))
+        ws.cell(row=row, column=146, value=float(round(float(daily_energy[d]), 4)))
+        ws.cell(row=row, column=147, value=float(round(float(daily_cost[d]), 4)))
+
+
+def _fill_charge_discharge_sheet(ws, num_days, steps, p_chg, p_dis, e_bat, e_day_start):
+    """Fills a 充放电量 sheet: 6 four-hour blocks per day with 0:00/24:00 SOC."""
+    if ws.max_row >= 2:
+        ws.delete_rows(2, ws.max_row)
+    row = 2
+    for d in range(num_days):
+        date_str = (Q2_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
+        day_chg = p_chg[d * steps:(d + 1) * steps]
+        day_dis = p_dis[d * steps:(d + 1) * steps]
+        e_end = float(e_bat[(d + 1) * steps - 1])
+        for i, (a, b) in enumerate(FOUR_HOUR_WINDOWS):
+            r = row + i
+            ws.cell(row=r, column=1, value=date_str)
+            ws.cell(row=r, column=2, value=FOUR_HOUR_LABELS[i])
+            ws.cell(row=r, column=3, value=float(round(float(np.sum(day_chg[a:b])), 4)))
+            ws.cell(row=r, column=4, value=float(round(float(np.sum(day_dis[a:b])), 4)))
+            if i == 0:
+                ws.cell(row=r, column=5, value="00:00:00")
+                ws.cell(row=r, column=6, value=float(round(float(e_day_start[d]), 4)))
+            elif i == 1:
+                ws.cell(row=r, column=5, value="24:00")
+                ws.cell(row=r, column=6, value=float(round(e_end, 4)))
+        row += len(FOUR_HOUR_WINDOWS)
+
+
+def _fill_emergency_sheet(ws, num_days, steps, p_em):
+    """Fills a 紧急购电量 event ledger (only actual events, 3 template columns)."""
+    if ws.max_row >= 2:
+        ws.delete_rows(2, ws.max_row)
+    row = 2
+    for d in range(num_days):
+        date_str = (Q2_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
+        day_em = p_em[d * steps:(d + 1) * steps]
+        for a, b in _contiguous_runs(day_em > 1e-9):
+            ws.cell(row=row, column=1, value=date_str)
+            ws.cell(row=row, column=2,
+                     value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
+            ws.cell(row=row, column=3,
+                     value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
+            row += 1
+
+
 def export_q2_result(res):
     """
-    Populates the blank Annex 5 result2 template and saves to results/result2.xlsx.
+    Populates the blank Annex 5 result2 template and saves to results/Q2_optimized.xlsx
+    plus a flat Q2_optimized.csv.
 
     Sheet 1 '计划购电量': per 10-min planned purchase energy per day plus the
     whole-day planned energy and planned purchase cost.
     Sheet 2 '充放电量': 4-hour aggregated charge/discharge energy and the
     battery state at 00:00 and 24:00 for every day.
-    Sheet 3 '紧急购电量': date, time window and energy of every emergency
-    purchase occurrence.
+    Sheet 3 '紧急购电量': event ledger of every emergency purchase.
     """
     template_path = os.path.join(TEMPLATES_DIR, "result2.xlsx")
     out_path = os.path.join(RESULTS_DIR, "Q2_optimized.xlsx")
@@ -117,54 +170,11 @@ def export_q2_result(res):
     e_bat = res["e_bat_kwh"]
     e_day_start = res["e_day_start"]
 
-    ws1 = wb["计划购电量"]
-    for d in range(num_days):
-        row = 2 + d
-        day_plan = p_plan[d * steps:(d + 1) * steps]
-        for t in range(steps):
-            ws1.cell(row=row, column=2 + t, value=float(round(day_plan[t], 4)))
-        ws1.cell(row=row, column=146,
-                 value=float(round(float(res["daily_plan_energy"][d]), 4)))
-        ws1.cell(row=row, column=147,
-                 value=float(round(float(res["daily_planned_cost"][d]), 4)))
-
-    ws2 = wb["充放电量"]
-    if ws2.max_row >= 2:
-        ws2.delete_rows(2, ws2.max_row)
-    row = 2
-    for d in range(num_days):
-        date_str = (Q2_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
-        day_chg = p_chg[d * steps:(d + 1) * steps]
-        day_dis = p_dis[d * steps:(d + 1) * steps]
-        e_end = float(e_bat[(d + 1) * steps - 1])
-        for i, (a, b) in enumerate(FOUR_HOUR_WINDOWS):
-            r = row + i
-            ws2.cell(row=r, column=1, value=date_str)
-            ws2.cell(row=r, column=2, value=FOUR_HOUR_LABELS[i])
-            ws2.cell(row=r, column=3, value=float(round(float(np.sum(day_chg[a:b])), 4)))
-            ws2.cell(row=r, column=4, value=float(round(float(np.sum(day_dis[a:b])), 4)))
-            if i == 0:
-                ws2.cell(row=r, column=5, value="00:00:00")
-                ws2.cell(row=r, column=6, value=float(round(float(e_day_start[d]), 4)))
-            elif i == 1:
-                ws2.cell(row=r, column=5, value="24:00")
-                ws2.cell(row=r, column=6, value=float(round(e_end, 4)))
-        row += len(FOUR_HOUR_WINDOWS)
-
-    ws3 = wb["紧急购电量"]
-    if ws3.max_row >= 2:
-        ws3.delete_rows(2, ws3.max_row)
-    row = 2
-    for d in range(num_days):
-        date_str = (Q2_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
-        day_em = p_em[d * steps:(d + 1) * steps]
-        for a, b in _contiguous_runs(day_em > 1e-9):
-            ws3.cell(row=row, column=1, value=date_str)
-            ws3.cell(row=row, column=2,
-                     value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
-            ws3.cell(row=row, column=3,
-                     value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
-            row += 1
+    _fill_plan_sheet(wb["计划购电量"], num_days, steps, p_plan,
+                     res["daily_plan_energy"], res["daily_planned_cost"])
+    _fill_charge_discharge_sheet(wb["充放电量"], num_days, steps,
+                                 p_chg, p_dis, e_bat, e_day_start)
+    _fill_emergency_sheet(wb["紧急购电量"], num_days, steps, p_em)
 
     wb.save(out_path)
     print(f"[SUCCESS] Q2 optimized deliverables correctly mapped to: {out_path}")
@@ -177,6 +187,107 @@ def export_q2_result(res):
     csv_path = os.path.join(RESULTS_DIR, "Q2_optimized.csv")
     long_df.to_csv(csv_path, index=False)
     print(f"[SUCCESS] Q2 optimized long-format series saved to: {csv_path}")
+    return out_path
+
+
+def export_q4_2_result(res):
+    """
+    Populates the Annex 5 result4-2 template (same multi-sheet layout as
+    result2) with the dynamic-tariff two-stage Q4-2 results.
+    """
+    template_path = os.path.join(TEMPLATES_DIR, "result4-2.xlsx")
+    out_path = os.path.join(RESULTS_DIR, "result4-2.xlsx")
+    _ensure_dir(RESULTS_DIR)
+
+    wb = load_workbook(template_path)
+
+    num_days = int(res["num_days"])
+    steps = STEPS_PER_DAY
+    p_plan = res["p_plan_kwh"]
+    p_em = res["p_em_kwh"]
+    p_chg = res["p_chg_kwh"]
+    p_dis = res["p_dis_kwh"]
+    e_bat = res["e_bat_kwh"]
+    e_day_start = res["e_day_start"]
+
+    _fill_plan_sheet(wb["计划购电量"], num_days, steps, p_plan,
+                     res["daily_plan_energy"], res["daily_planned_cost"])
+    _fill_charge_discharge_sheet(wb["充放电量"], num_days, steps,
+                                 p_chg, p_dis, e_bat, e_day_start)
+    _fill_emergency_sheet(wb["紧急购电量"], num_days, steps, p_em)
+
+    wb.save(out_path)
+    print(f"[SUCCESS] Q4-2 deliverables correctly mapped to: {out_path}")
+
+    long_df = pd.DataFrame({
+        "P_plan_kWh": p_plan,
+        "P_em_kWh": p_em,
+        "E_bat_kWh": e_bat,
+    })
+    csv_path = os.path.join(RESULTS_DIR, "result4-2.csv")
+    long_df.to_csv(csv_path, index=False)
+    print(f"[SUCCESS] Q4-2 long-format series saved to: {csv_path}")
+    return out_path
+
+
+def export_q4_3_result(res, tariffs_matrix):
+    """
+    Populates the Annex 5 result4-3 template (4 sheets) with the dynamic-tariff
+    rolling MPC results: 计划购电量 (P_plan), 调整购电量 (P_adj), 充放电量 and
+    紧急购电量. Also writes a flat result4-3.csv.
+    """
+    template_path = os.path.join(TEMPLATES_DIR, "result4-3.xlsx")
+    out_path = os.path.join(RESULTS_DIR, "result4-3.xlsx")
+    _ensure_dir(RESULTS_DIR)
+
+    wb = load_workbook(template_path)
+
+    num_days = int(res["num_days"])
+    steps = STEPS_PER_DAY
+    p_plan = res["p_plan_kwh"]
+    p_adj = res["p_adj_kwh"]
+    p_em = res["p_em_kwh"]
+    p_chg = res["p_chg_kwh"]
+    p_dis = res["p_dis_kwh"]
+    e_bat = res["e_bat_kwh"]
+    start_day = int(res["start_day"])
+
+    e_day_start = np.zeros(num_days)
+    daily_plan_energy = np.zeros(num_days)
+    daily_plan_cost = np.zeros(num_days)
+    daily_adj_energy = np.zeros(num_days)
+    daily_adj_cost = np.zeros(num_days)
+    for d in range(num_days):
+        tariff_d = (tariffs_matrix[start_day + d]
+                    if tariffs_matrix.ndim == 2 else tariffs_matrix)
+        day_plan = p_plan[d * steps:(d + 1) * steps]
+        day_adj = p_adj[d * steps:(d + 1) * steps]
+        daily_plan_energy[d] = float(np.sum(day_plan))
+        daily_adj_energy[d] = float(np.sum(day_adj))
+        daily_plan_cost[d] = float(np.sum(tariff_d * day_plan))
+        daily_adj_cost[d] = float(np.sum(tariff_d * day_adj))
+        e_day_start[d] = float(E_INIT if d == 0 else e_bat[d * steps - 1])
+
+    _fill_plan_sheet(wb["计划购电量"], num_days, steps, p_plan,
+                     daily_plan_energy, daily_plan_cost)
+    _fill_plan_sheet(wb["调整购电量"], num_days, steps, p_adj,
+                     daily_adj_energy, daily_adj_cost)
+    _fill_charge_discharge_sheet(wb["充放电量"], num_days, steps,
+                                 p_chg, p_dis, e_bat, e_day_start)
+    _fill_emergency_sheet(wb["紧急购电量"], num_days, steps, p_em)
+
+    wb.save(out_path)
+    print(f"[SUCCESS] Q4-3 deliverables correctly mapped to: {out_path}")
+
+    long_df = pd.DataFrame({
+        "P_plan_kWh": p_plan,
+        "P_adj_kWh": p_adj,
+        "P_em_kWh": p_em,
+        "E_bat_kWh": e_bat,
+    })
+    csv_path = os.path.join(RESULTS_DIR, "result4-3.csv")
+    long_df.to_csv(csv_path, index=False)
+    print(f"[SUCCESS] Q4-3 long-format series saved to: {csv_path}")
     return out_path
 
 

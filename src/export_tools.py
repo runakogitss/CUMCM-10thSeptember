@@ -77,6 +77,17 @@ def export_q1_result(res):
 
     wb.save(out_path)
     print(f"[SUCCESS] Q1 deliverables correctly mapped to: {out_path}")
+
+    flat_df = pd.DataFrame({
+        "P_grid_kWh": np.asarray(res["p_grid_kw"]) * DELTA_T,
+        "P_chg_kWh": np.asarray(res["p_chg_kw"]) * DELTA_T,
+        "P_dis_kWh": np.asarray(res["p_dis_kw"]) * DELTA_T,
+        "P_curt_kWh": np.asarray(res["p_curt_kw"]) * DELTA_T,
+        "E_bat_kWh": np.asarray(res["e_bat_kwh"]),
+    })
+    csv_path = os.path.join(RESULTS_DIR, "result1.csv")
+    flat_df.to_csv(csv_path, index=False)
+    print(f"[SUCCESS] Q1 long-format series saved to: {csv_path}")
     return out_path
 
 
@@ -104,7 +115,6 @@ def export_q2_result(res):
     p_chg = res["p_chg_kwh"]
     p_dis = res["p_dis_kwh"]
     e_bat = res["e_bat_kwh"]
-    p_em_cost = res["p_em_cost"]
     e_day_start = res["e_day_start"]
 
     ws1 = wb["计划购电量"]
@@ -123,13 +133,13 @@ def export_q2_result(res):
         ws2.delete_rows(2, ws2.max_row)
     row = 2
     for d in range(num_days):
-        date_val = Q2_START_DATE + timedelta(days=d)
+        date_str = (Q2_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
         day_chg = p_chg[d * steps:(d + 1) * steps]
         day_dis = p_dis[d * steps:(d + 1) * steps]
         e_end = float(e_bat[(d + 1) * steps - 1])
         for i, (a, b) in enumerate(FOUR_HOUR_WINDOWS):
             r = row + i
-            ws2.cell(row=r, column=1, value=date_val if i == 0 else None)
+            ws2.cell(row=r, column=1, value=date_str)
             ws2.cell(row=r, column=2, value=FOUR_HOUR_LABELS[i])
             ws2.cell(row=r, column=3, value=float(round(float(np.sum(day_chg[a:b])), 4)))
             ws2.cell(row=r, column=4, value=float(round(float(np.sum(day_dis[a:b])), 4)))
@@ -144,35 +154,16 @@ def export_q2_result(res):
     ws3 = wb["紧急购电量"]
     if ws3.max_row >= 2:
         ws3.delete_rows(2, ws3.max_row)
-    ws3.cell(row=1, column=4, value="持续时长(h)")
-    ws3.cell(row=1, column=5, value="罚金(元)")
     row = 2
     for d in range(num_days):
-        date_val = Q2_START_DATE + timedelta(days=d)
+        date_str = (Q2_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
         day_em = p_em[d * steps:(d + 1) * steps]
-        day_em_cost = p_em_cost[d * steps:(d + 1) * steps]
-        runs = _contiguous_runs(day_em > 1e-9)
-        ws3.cell(row=row, column=1, value=date_val)
-        if runs:
-            a, b = runs[0]
-            duration = (b - a + 1) * DELTA_T
+        for a, b in _contiguous_runs(day_em > 1e-9):
+            ws3.cell(row=row, column=1, value=date_str)
             ws3.cell(row=row, column=2,
                      value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
             ws3.cell(row=row, column=3,
                      value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
-            ws3.cell(row=row, column=4, value=float(round(duration, 4)))
-            ws3.cell(row=row, column=5,
-                     value=float(round(float(np.sum(day_em_cost[a:b + 1])), 4)))
-        row += 1
-        for a, b in runs[1:]:
-            duration = (b - a + 1) * DELTA_T
-            ws3.cell(row=row, column=2,
-                     value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
-            ws3.cell(row=row, column=3,
-                     value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
-            ws3.cell(row=row, column=4, value=float(round(duration, 4)))
-            ws3.cell(row=row, column=5,
-                     value=float(round(float(np.sum(day_em_cost[a:b + 1])), 4)))
             row += 1
 
     wb.save(out_path)
@@ -187,6 +178,49 @@ def export_q2_result(res):
     long_df.to_csv(csv_path, index=False)
     print(f"[SUCCESS] Q2 optimized long-format series saved to: {csv_path}")
     return out_path
+
+
+def verify_q2_export(out_path, total_em_kwh=None, total_cost=None):
+    """
+    Automated health check on the exported result2 workbook against the
+    official Annex 5 template requirements.
+    """
+    checks = []
+
+    d1 = pd.read_excel(out_path, sheet_name="计划购电量", header=None)
+    checks.append(("Sheet1: 334 data rows", d1.shape[0] - 1, 334))
+    checks.append(("Sheet1: 147 cols", d1.shape[1], 147))
+    checks.append(("Sheet1: NaT/NaN in data block",
+                   int(d1.iloc[1:, 1:145].isna().sum().sum()), 0))
+
+    d2 = pd.read_excel(out_path, sheet_name="充放电量", header=None)
+    checks.append(("Sheet2: 2004 data rows", d2.shape[0] - 1, 2004))
+    checks.append(("Sheet2: 6 cols", d2.shape[1], 6))
+    checks.append(("Sheet2: NaT in Column A (日期)",
+                   int(d2.iloc[1:, 0].isna().sum()), 0))
+
+    d3 = pd.read_excel(out_path, sheet_name="紧急购电量", header=None)
+    header_ok = [str(v) for v in d3.iloc[0, :3].tolist()] == ["日期", "购电时间段", "购电量"]
+    checks.append(("Sheet3: 3-col header match", header_ok, True))
+    placeholder = int((d3.iloc[1:, 0].isna() | d3.iloc[1:, 2].isna()).sum())
+    checks.append(("Sheet3: NaN placeholder rows", placeholder, 0))
+    em_sum = float(d3.iloc[1:, 2].astype(float).sum())
+    if total_em_kwh is not None:
+        checks.append(("Sheet3: total emergency kWh",
+                       round(em_sum, 2), round(float(total_em_kwh), 2)))
+    checks.append(("Sheet3: event rows", int(d3.iloc[1:, 2].notna().sum()), None))
+
+    if total_cost is not None:
+        checks.append(("Total Q2 cost (Yuan)", round(float(total_cost), 2), None))
+
+    all_pass = True
+    print("\n=== Q2 Export Health Check ===")
+    for name, got, want in checks:
+        ok = (want is None) or (got == want)
+        all_pass &= ok
+        print(f"  [{'PASS' if ok else 'FAIL'}] {name}: got={got} expect={want}")
+    print(f"  >>> {'ALL CHECKS PASSED' if all_pass else 'SOME CHECKS FAILED'} <<<")
+    return all_pass
 
 
 def export_result(file_name, data_dict):

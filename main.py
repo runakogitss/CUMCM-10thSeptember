@@ -10,7 +10,10 @@ from src.data_loader import (
 from src.solver_q1 import solve_q1
 from src.simulator_q2 import run_q2_simulation, run_q2_baseline_simulation
 from src.mpc_q3 import run_q3_simulation
-from src.export_tools import export_result, export_q1_result, export_q2_result, RESULTS_DIR
+from src.export_tools import (
+    export_result, export_q1_result, export_q2_result,
+    verify_q2_export, RESULTS_DIR,
+)
 
 
 def _print_q3_summary(res, q2_baseline_cost):
@@ -111,6 +114,8 @@ def main():
     res_q2 = run_q2_simulation(tariffs_q1, load_act, pv_act)
     baseline_cost = run_q2_baseline_simulation(tariffs_q1, load_act, pv_act)["total_cost"]
     export_q2_result(res_q2)
+    verify_q2_export(os.path.join(RESULTS_DIR, "Q2_optimized.xlsx"),
+                     res_q2["total_em_kwh"], res_q2["total_cost"])
     _print_q2_summary(res_q2, baseline_cost)
 
     # 3. Question 3 Solution (rolling-horizon MPC with Annex 3 PV forecasts)

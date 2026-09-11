@@ -1,11 +1,24 @@
 import os
 import pandas as pd
 import numpy as np
-from src.config import STEPS_PER_DAY
+from src.config import STEPS_PER_DAY, PRIOR_STEPS, SIM_STEPS
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 
 FORECAST_TIMES_HOURS = [0, 6, 12, 18]
+
+
+def split_prior_and_simulation(load_kw, pv_kw):
+    """Split the full-year Annex 2 actuals into prior and simulation windows.
+
+    January 2025 (steps 0..4,463) is the prior/training set used by the
+    forecasting models. February 1 - December 31 2025 (48,096 steps) is the
+    Question 2 simulation and submission range.
+    """
+    prior = (load_kw[:PRIOR_STEPS], pv_kw[:PRIOR_STEPS])
+    simulation = (load_kw[PRIOR_STEPS:PRIOR_STEPS + SIM_STEPS],
+                  pv_kw[PRIOR_STEPS:PRIOR_STEPS + SIM_STEPS])
+    return prior, simulation
 
 def load_annex1_tariffs():
     """Loads time-of-use tariffs from Annex 1."""

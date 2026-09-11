@@ -18,15 +18,44 @@ PENALTY_EMERGENCY = 5.0   # Emergency purchase penalty ratio[cite: 2]
 PENALTY_ADD = 1.5         # Intra-day addition ratio (Q3)[cite: 2]
 PENALTY_REDUCE = 0.5      # Intra-day reduction breach fee ratio (Q3)[cite: 2]
 
-def get_baseline_load_forecast(historical_load_series, window_days=7):
+# Question 2 day-ahead planning heuristics
+FORECAST_WINDOW_DAYS = 7    # Rolling look-back window for the 0:00 forecast
+# Multiplicative safety buffer hedging the 5:1 emergency penalty. Calibrated
+# close to the newsvendor critical fractile Cu/(Cu+Co) = 5/6 of the net-load
+# forecast error while staying in the 1.05-1.10 design range.
+SAFETY_BUFFER_ALPHA = 1.10
+
+# Simulation calendar (2025)
+JANUARY_DAYS = 31                 # January prior/training window (days 1-31)
+SIM_START_DAY = JANUARY_DAYS      # 0-indexed first simulation day (Feb 1)
+SIM_NUM_DAYS = 334                # Feb 1 - Dec 31 inclusive
+PRIOR_STEPS = JANUARY_DAYS * STEPS_PER_DAY   # 4,464 historical steps
+SIM_STEPS = SIM_NUM_DAYS * STEPS_PER_DAY     # 48,096 simulation steps
+
+
+def get_baseline_forecast(historical_series, window_days=FORECAST_WINDOW_DAYS):
     """
-    Persistence / Rolling Average Forecast Rule for 0:00 Planning (Q2/Q3).
+    Rolling persistence forecast used for 0:00 day-ahead planning (Q2/Q3).
+
+    Averages the same 10-minute slot across the most recent `window_days`
+    of available history, returning a 144-step forecast in the series units.
     """
-    if len(historical_load_series) < window_days * STEPS_PER_DAY:
-        # Fallback to simple persistence if historical window is short
-        return historical_load_series[-STEPS_PER_DAY:]
-    
-    # 7-day rolling average for each 10-min slot of the day
-    recent_history = historical_load_series[-(window_days * STEPS_PER_DAY):]
+    historical_series = np.asarray(historical_series, dtype=float)
+    available_days = len(historical_series) // STEPS_PER_DAY
+    window_days = int(min(window_days, available_days))
+    if window_days < 1:
+        return np.zeros(STEPS_PER_DAY)
+
+    recent_history = historical_series[-(window_days * STEPS_PER_DAY):]
     reshaped = recent_history.reshape((window_days, STEPS_PER_DAY))
     return np.mean(reshaped, axis=0)
+
+
+def get_baseline_load_forecast(historical_load_series, window_days=FORECAST_WINDOW_DAYS):
+    """Day-ahead load forecast (kW) for each 10-minute slot."""
+    return get_baseline_forecast(historical_load_series, window_days)
+
+
+def get_baseline_pv_forecast(historical_pv_series, window_days=FORECAST_WINDOW_DAYS):
+    """Day-ahead PV forecast (kW) for each 10-minute slot."""
+    return get_baseline_forecast(historical_pv_series, window_days)

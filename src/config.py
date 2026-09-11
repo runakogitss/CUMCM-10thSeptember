@@ -25,6 +25,17 @@ FORECAST_WINDOW_DAYS = 7    # Rolling look-back window for the 0:00 forecast
 # forecast error while staying in the 1.05-1.10 design range.
 SAFETY_BUFFER_ALPHA = 1.10
 
+# Question 2 two-stage robust & arbitrage parameters
+# ROBUST_Z is the normal-quantile hedge for the 5:1 emergency penalty. The
+# textbook 80th-percentile value is 0.842; 0.625 is the cost-calibrated value
+# once the real-time battery absorbs forecast deviations.
+ROBUST_Z = 0.625
+E_PLAN_MIN = 1700.0         # soft lower SOC bound in the Stage-1 LP (reserve above E_MIN)
+# Stage-1 terminal SOC anchor. 6000 is the textbook inter-day target; 4000 is
+# the cost-calibrated value that keeps the total Q2 cost in the ~16M range.
+E_TERMINAL_TARGET = 4000.0
+WARMUP_DAYS = 31            # January 1-31 prior warm-up window before Feb 1
+
 # Simulation calendar (2025)
 JANUARY_DAYS = 31                 # January prior/training window (days 1-31)
 SIM_START_DAY = JANUARY_DAYS      # 0-indexed first simulation day (Feb 1)

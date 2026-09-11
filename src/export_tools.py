@@ -92,7 +92,7 @@ def export_q2_result(res):
     purchase occurrence.
     """
     template_path = os.path.join(TEMPLATES_DIR, "result2.xlsx")
-    out_path = os.path.join(RESULTS_DIR, "result2.xlsx")
+    out_path = os.path.join(RESULTS_DIR, "Q2_optimized.xlsx")
     _ensure_dir(RESULTS_DIR)
 
     wb = load_workbook(template_path)
@@ -104,6 +104,7 @@ def export_q2_result(res):
     p_chg = res["p_chg_kwh"]
     p_dis = res["p_dis_kwh"]
     e_bat = res["e_bat_kwh"]
+    p_em_cost = res["p_em_cost"]
     e_day_start = res["e_day_start"]
 
     ws1 = wb["计划购电量"]
@@ -143,45 +144,73 @@ def export_q2_result(res):
     ws3 = wb["紧急购电量"]
     if ws3.max_row >= 2:
         ws3.delete_rows(2, ws3.max_row)
+    ws3.cell(row=1, column=4, value="持续时长(h)")
+    ws3.cell(row=1, column=5, value="罚金(元)")
     row = 2
     for d in range(num_days):
         date_val = Q2_START_DATE + timedelta(days=d)
         day_em = p_em[d * steps:(d + 1) * steps]
+        day_em_cost = p_em_cost[d * steps:(d + 1) * steps]
         runs = _contiguous_runs(day_em > 1e-9)
         ws3.cell(row=row, column=1, value=date_val)
         if runs:
             a, b = runs[0]
+            duration = (b - a + 1) * DELTA_T
             ws3.cell(row=row, column=2,
                      value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
             ws3.cell(row=row, column=3,
                      value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
+            ws3.cell(row=row, column=4, value=float(round(duration, 4)))
+            ws3.cell(row=row, column=5,
+                     value=float(round(float(np.sum(day_em_cost[a:b + 1])), 4)))
         row += 1
         for a, b in runs[1:]:
+            duration = (b - a + 1) * DELTA_T
             ws3.cell(row=row, column=2,
                      value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
             ws3.cell(row=row, column=3,
                      value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
+            ws3.cell(row=row, column=4, value=float(round(duration, 4)))
+            ws3.cell(row=row, column=5,
+                     value=float(round(float(np.sum(day_em_cost[a:b + 1])), 4)))
             row += 1
 
     wb.save(out_path)
-    print(f"[SUCCESS] Q2 deliverables correctly mapped to: {out_path}")
+    print(f"[SUCCESS] Q2 optimized deliverables correctly mapped to: {out_path}")
+
+    long_df = pd.DataFrame({
+        "P_plan_kWh": p_plan,
+        "P_em_kWh": p_em,
+        "E_bat_kWh": e_bat,
+    })
+    csv_path = os.path.join(RESULTS_DIR, "Q2_optimized.csv")
+    long_df.to_csv(csv_path, index=False)
+    print(f"[SUCCESS] Q2 optimized long-format series saved to: {csv_path}")
     return out_path
 
 
 def export_result(file_name, data_dict):
     """
-    Writes generated data arrays to results/ (data/raw/ is read-only).
-    If the target file is locked (open in Excel), falls back to a copy
-    with a `_generated` suffix instead of crashing.
+    Writes generated data arrays to results/ in both xlsx and csv formats
+    (data/raw/ is read-only). If the target file is locked (open in Excel),
+    falls back to a copy with a `_generated` suffix instead of crashing.
     """
     _ensure_dir(RESULTS_DIR)
-    target_path = os.path.join(RESULTS_DIR, file_name)
+    base, ext = os.path.splitext(file_name)
     df = pd.DataFrame(data_dict)
     try:
-        df.to_excel(target_path, index=False)
-        print(f"[SUCCESS] Formatted energy outputs saved to: {target_path}")
+        df.to_excel(os.path.join(RESULTS_DIR, file_name), index=False)
+        print(f"[SUCCESS] Formatted energy outputs saved to: {os.path.join(RESULTS_DIR, file_name)}")
     except PermissionError:
-        base, ext = os.path.splitext(file_name)
-        fallback = os.path.join(RESULTS_DIR, f"{base}_generated{ext}")
-        df.to_excel(fallback, index=False)
-        print(f"[WARNING] {file_name} is open in Excel; results saved to: {fallback}")
+        fallback_xlsx = os.path.join(RESULTS_DIR, f"{base}_generated.xlsx")
+        df.to_excel(fallback_xlsx, index=False)
+        print(f"[WARNING] {file_name} is open in Excel; results saved to: {fallback_xlsx}")
+
+    try:
+        csv_path = os.path.join(RESULTS_DIR, f"{base}.csv")
+        df.to_csv(csv_path, index=False)
+        print(f"[SUCCESS] Formatted energy outputs saved to: {csv_path}")
+    except PermissionError:
+        fallback_csv = os.path.join(RESULTS_DIR, f"{base}_generated.csv")
+        df.to_csv(fallback_csv, index=False)
+        print(f"[WARNING] {file_name} csv is open; results saved to: {fallback_csv}")

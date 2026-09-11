@@ -19,7 +19,8 @@ FOUR_HOUR_LABELS = [
     "12:00-16:00", "16:00-20:00", "20:00-24:00",
 ]
 
-Q2_START_DATE = datetime(2025, 2, 1)
+SIM_START_DATE = datetime(2025, 2, 1)
+Q2_START_DATE = SIM_START_DATE
 
 
 def _step_time_label(step):
@@ -92,14 +93,17 @@ def export_q1_result(res):
 
 
 def _fill_plan_sheet(ws, num_days, steps, p_series, daily_energy, daily_cost):
-    """Fills a 计划购电量-style sheet (date + 144 kWh steps + daily totals)."""
+    """Fills a 计划购电量 / 调整购电量 style sheet (date + 144 kWh steps + daily totals)."""
     for d in range(num_days):
         row = 2 + d
         day = p_series[d * steps:(d + 1) * steps]
         for t in range(steps):
             ws.cell(row=row, column=2 + t, value=float(round(day[t], 4)))
-        ws.cell(row=row, column=146, value=float(round(float(daily_energy[d]), 4)))
-        ws.cell(row=row, column=147, value=float(round(float(daily_cost[d]), 4)))
+        # 兼容模板是否存在第 146、147 列总计
+        if ws.max_column >= 146:
+            ws.cell(row=row, column=146, value=float(round(float(daily_energy[d]), 4)))
+        if ws.max_column >= 147:
+            ws.cell(row=row, column=147, value=float(round(float(daily_cost[d]), 4)))
 
 
 def _fill_charge_discharge_sheet(ws, num_days, steps, p_chg, p_dis, e_bat, e_day_start):
@@ -108,19 +112,24 @@ def _fill_charge_discharge_sheet(ws, num_days, steps, p_chg, p_dis, e_bat, e_day
         ws.delete_rows(2, ws.max_row)
     row = 2
     for d in range(num_days):
-        date_str = (Q2_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
+        date_str = (SIM_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
         day_chg = p_chg[d * steps:(d + 1) * steps]
         day_dis = p_dis[d * steps:(d + 1) * steps]
         e_end = float(e_bat[(d + 1) * steps - 1])
+        soc_start_val = float(e_day_start[d]) if e_day_start is not None else (
+            float(E_INIT if d == 0 else e_bat[d * steps - 1])
+        )
         for i, (a, b) in enumerate(FOUR_HOUR_WINDOWS):
             r = row + i
-            ws.cell(row=r, column=1, value=date_str)
+            # 官方模板规范：仅当天第 1 行显示日期，其余 5 行留空
+            if i == 0:
+                ws.cell(row=r, column=1, value=date_str)
             ws.cell(row=r, column=2, value=FOUR_HOUR_LABELS[i])
             ws.cell(row=r, column=3, value=float(round(float(np.sum(day_chg[a:b])), 4)))
             ws.cell(row=r, column=4, value=float(round(float(np.sum(day_dis[a:b])), 4)))
             if i == 0:
                 ws.cell(row=r, column=5, value="00:00:00")
-                ws.cell(row=r, column=6, value=float(round(float(e_day_start[d]), 4)))
+                ws.cell(row=r, column=6, value=float(round(soc_start_val, 4)))
             elif i == 1:
                 ws.cell(row=r, column=5, value="24:00")
                 ws.cell(row=r, column=6, value=float(round(e_end, 4)))
@@ -133,14 +142,14 @@ def _fill_emergency_sheet(ws, num_days, steps, p_em):
         ws.delete_rows(2, ws.max_row)
     row = 2
     for d in range(num_days):
-        date_str = (Q2_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
+        date_str = (SIM_START_DATE + timedelta(days=d)).strftime("%Y-%m-%d")
         day_em = p_em[d * steps:(d + 1) * steps]
-        for a, b in _contiguous_runs(day_em > 1e-9):
+        for a, b in _contiguous_runs(day_em > 1e-4):
             ws.cell(row=row, column=1, value=date_str)
             ws.cell(row=row, column=2,
-                     value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
+                    value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
             ws.cell(row=row, column=3,
-                     value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
+                    value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
             row += 1
 
 
@@ -148,12 +157,6 @@ def export_q2_result(res):
     """
     Populates the blank Annex 5 result2 template and saves to results/Q2_optimized.xlsx
     plus a flat Q2_optimized.csv.
-
-    Sheet 1 '计划购电量': per 10-min planned purchase energy per day plus the
-    whole-day planned energy and planned purchase cost.
-    Sheet 2 '充放电量': 4-hour aggregated charge/discharge energy and the
-    battery state at 00:00 and 24:00 for every day.
-    Sheet 3 '紧急购电量': event ledger of every emergency purchase.
     """
     template_path = os.path.join(TEMPLATES_DIR, "result2.xlsx")
     out_path = os.path.join(RESULTS_DIR, "Q2_optimized.xlsx")
@@ -179,6 +182,10 @@ def export_q2_result(res):
     wb.save(out_path)
     print(f"[SUCCESS] Q2 optimized deliverables correctly mapped to: {out_path}")
 
+    # 同时同步生成官方命名的 result2.xlsx
+    res2_path = os.path.join(RESULTS_DIR, "result2.xlsx")
+    wb.save(res2_path)
+
     long_df = pd.DataFrame({
         "P_plan_kWh": p_plan,
         "P_em_kWh": p_em,
@@ -187,6 +194,93 @@ def export_q2_result(res):
     csv_path = os.path.join(RESULTS_DIR, "Q2_optimized.csv")
     long_df.to_csv(csv_path, index=False)
     print(f"[SUCCESS] Q2 optimized long-format series saved to: {csv_path}")
+    return out_path
+
+
+def export_q3_result(res, tariffs_matrix):
+    """
+    Populates the Annex 5 result3 template (4 sheets) with Question 3 rolling MPC outputs:
+      Sheet 1: 计划购电量 (P_plan, 334 rows x 144 steps)
+      Sheet 2: 调整购电量 (P_adj, 334 rows x 144 steps)
+      Sheet 3: 充放电量 (6 intervals per day, 2004 rows)
+      Sheet 4: 紧急购电量 (Contiguous deficit event ledger, 3 columns)
+    Also writes a detailed results/result3.csv for downstream verification.
+    """
+    template_path = os.path.join(TEMPLATES_DIR, "result3.xlsx")
+    out_path = os.path.join(RESULTS_DIR, "result3.xlsx")
+    _ensure_dir(RESULTS_DIR)
+
+    wb = load_workbook(template_path)
+
+    num_days = int(res["num_days"])
+    steps = STEPS_PER_DAY
+    p_plan = np.asarray(res["p_plan_kwh"])
+    p_adj = np.asarray(res["p_adj_kwh"])
+    p_em = np.asarray(res["p_em_kwh"])
+    p_chg = np.asarray(res["p_chg_kwh"])
+    p_dis = np.asarray(res["p_dis_kwh"])
+    e_bat = np.asarray(res["e_bat_kwh"])
+    start_day = int(res["start_day"])
+
+    daily_plan_energy = np.zeros(num_days)
+    daily_plan_cost = np.zeros(num_days)
+    daily_adj_energy = np.zeros(num_days)
+    daily_adj_cost = np.zeros(num_days)
+    e_day_start = np.zeros(num_days)
+
+    for d in range(num_days):
+        tariff_d = (tariffs_matrix[start_day + d]
+                    if tariffs_matrix.ndim == 2 else tariffs_matrix)
+        day_plan = p_plan[d * steps:(d + 1) * steps]
+        day_adj = p_adj[d * steps:(d + 1) * steps]
+        daily_plan_energy[d] = float(np.sum(day_plan))
+        daily_adj_energy[d] = float(np.sum(day_adj))
+        daily_plan_cost[d] = float(np.sum(tariff_d * day_plan))
+        daily_adj_cost[d] = float(np.sum(tariff_d * day_adj))
+        e_day_start[d] = float(res.get("warmup_end_soc", E_INIT) if d == 0 else e_bat[d * steps - 1])
+
+    # 1. 计划购电量
+    _fill_plan_sheet(wb["计划购电量"], num_days, steps, p_plan,
+                     daily_plan_energy, daily_plan_cost)
+
+    # 2. 调整购电量
+    _fill_plan_sheet(wb["调整购电量"], num_days, steps, p_adj,
+                     daily_adj_energy, daily_adj_cost)
+
+    # 3. 充放电量
+    _fill_charge_discharge_sheet(wb["充放电量"], num_days, steps,
+                                 p_chg, p_dis, e_bat, e_day_start)
+
+    # 4. 紧急购电量
+    _fill_emergency_sheet(wb["紧急购电量"], num_days, steps, p_em)
+
+    # 处理 Excel 文件占用保护
+    try:
+        wb.save(out_path)
+        print(f"[SUCCESS] Q3 official deliverables correctly mapped to: {out_path}")
+    except PermissionError:
+        fallback_xlsx = os.path.join(RESULTS_DIR, "result3_generated.xlsx")
+        wb.save(fallback_xlsx)
+        print(f"[WARNING] result3.xlsx is open; results saved to: {fallback_xlsx}")
+
+    # 保存完整的长序列调试 CSV
+    long_df = pd.DataFrame({
+        "P_plan_kWh": p_plan,
+        "P_adj_kWh": p_adj,
+        "P_em_kWh": p_em,
+        "P_chg_kWh": p_chg,
+        "P_dis_kWh": p_dis,
+        "E_bat_kWh": e_bat,
+    })
+    csv_path = os.path.join(RESULTS_DIR, "result3.csv")
+    try:
+        long_df.to_csv(csv_path, index=False)
+        print(f"[SUCCESS] Q3 long-format series saved to: {csv_path}")
+    except PermissionError:
+        fallback_csv = os.path.join(RESULTS_DIR, "result3_generated.csv")
+        long_df.to_csv(fallback_csv, index=False)
+        print(f"[WARNING] result3.csv is open; saved to: {fallback_csv}")
+
     return out_path
 
 
@@ -336,9 +430,7 @@ def verify_q2_export(out_path, total_em_kwh=None, total_cost=None):
 
 def export_result(file_name, data_dict):
     """
-    Writes generated data arrays to results/ in both xlsx and csv formats
-    (data/raw/ is read-only). If the target file is locked (open in Excel),
-    falls back to a copy with a `_generated` suffix instead of crashing.
+    Legacy general exporter kept for full backwards-compatibility.
     """
     _ensure_dir(RESULTS_DIR)
     base, ext = os.path.splitext(file_name)

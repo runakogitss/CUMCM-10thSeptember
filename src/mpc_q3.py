@@ -4,29 +4,25 @@ import scipy.optimize as opt
 from src.config import (
     DELTA_T, STEPS_PER_DAY, E_MIN, E_MAX, P_CHG_MAX, P_DIS_MAX,
     ETA_CHG, ETA_DIS, E_INIT, PENALTY_ADD, PENALTY_REDUCE, PENALTY_EMERGENCY,
-    SAFETY_BUFFER_ALPHA, SIM_START_DAY, SIM_NUM_DAYS,
-    get_baseline_load_forecast, get_baseline_pv_forecast,
+    E_TERMINAL_TARGET, WARMUP_DAYS, SIM_START_DAY, SIM_NUM_DAYS,
 )
 from src.data_loader import get_pv_forecast_10min
+from src.simulator_q2 import get_robust_net_load, solve_stage1_lp, _real_time_dispatch
 
-# Intra-day rolling epochs (10-min step index): 0:00, 6:00, 12:00, 18:00.
-ROLLING_EPOCHS = (0, 36, 72, 108)
-ISSUE_HOUR_BY_EPOCH = {0: 0, 36: 6, 72: 12, 108: 18}
+# 严格遵循赛题规范：仅在 6:00 (step 36), 12:00 (step 72), 18:00 (step 108) 触发滚动调整
+INTRA_DAY_EPOCHS = (36, 72, 108)
+ISSUE_HOUR_BY_EPOCH = {36: 6, 72: 12, 108: 18}
 
-# Variable layout per horizon step t:
-#   0: P_adj, 1: dP+, 2: dP-, 3: P_chg, 4: P_dis, 5: P_em, 6: P_curt, 7: E_bat
+# 变量布局 (每步 8 个变量):
+# 0: P_adj, 1: dP+, 2: dP-, 3: P_chg, 4: P_dis, 5: P_em, 6: P_curt, 7: E_bat
 VARS_PER_STEP = 8
 
 
-def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start):
+def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start, e_terminal=E_TERMINAL_TARGET):
     """
-    Solves the intra-day MPC linear program over a rolling horizon.
-
-    Decision variables are in kW (E_bat in kWh). Minimizes the adjustment
-    surcharge/breach fees plus the emergency penalty while respecting the
-    power balance and battery energy constraints.
-
-    Returns the adjusted purchase plan P_adj (kW) for the horizon.
+    求解日内 MPC 滚动时域线性规划 (t_now -> 144 步)。
+    在满足功率平衡、电池物理边界与日末可持续性储备的前提下，
+    最小化日内调整惩罚 (增调 1.5c / 退调 0.5c) 与潜在紧急购电惩罚 (5c)。
     """
     n = len(p_plan_h)
     nvars = VARS_PER_STEP * n
@@ -53,7 +49,7 @@ def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start):
 
     A_eq, b_eq = [], []
     for t in range(n):
-        # P_adj(t) - P_plan(t) = dP+(t) - dP-(t)
+        # 1. 计划调整关系分解: P_adj(t) - P_plan(t) = dP+(t) - dP-(t)
         row = np.zeros(nvars)
         row[idx(t, 0)] = 1.0
         row[idx(t, 1)] = -1.0
@@ -61,7 +57,7 @@ def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start):
         A_eq.append(row)
         b_eq.append(float(p_plan_h[t]))
 
-        # P_adj + P_pv + P_dis + P_em - P_chg - P_curt = P_load
+        # 2. 功率动态平衡: P_adj + P_pv_fc + P_dis + P_em - P_chg - P_curt = P_load_fc
         row = np.zeros(nvars)
         row[idx(t, 0)] = 1.0
         row[idx(t, 3)] = -1.0
@@ -71,7 +67,7 @@ def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start):
         A_eq.append(row)
         b_eq.append(float(load_fc_h[t] - pv_fc_h[t]))
 
-        # E(t) - E(t-1) = (eta_chg*P_chg - P_dis/eta_dis) * dt
+        # 3. 储能 SoC 动态递推: E(t) - E(t-1) = (eta_chg * P_chg - P_dis / eta_dis) * dt
         row = np.zeros(nvars)
         row[idx(t, 7)] = 1.0
         row[idx(t, 3)] = -ETA_CHG * DELTA_T
@@ -81,10 +77,23 @@ def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start):
         A_eq.append(row)
         b_eq.append(float(soc_start if t == 0 else 0.0))
 
+    # 4. 消除短视：设置日末储能储备软/硬边界约束，防止夜间将储能放空导致次日清晨击穿
+    A_ub, b_ub = [], []
+    row = np.zeros(nvars)
+    row[idx(n - 1, 7)] = -1.0
+    A_ub.append(row)
+    b_ub.append(-float(e_terminal))
+
     res = opt.linprog(c, A_eq=np.array(A_eq), b_eq=np.array(b_eq),
+                      A_ub=np.array(A_ub), b_ub=np.array(b_ub),
                       bounds=bounds, method="highs")
+    
+    # 极端不可行保护回退机制
     if not res.success:
-        raise RuntimeError(f"Q3 epoch LP failed: {res.message}")
+        res = opt.linprog(c, A_eq=np.array(A_eq), b_eq=np.array(b_eq),
+                          bounds=bounds, method="highs")
+        if not res.success:
+            return np.array(p_plan_h)
 
     return np.array([res.x[idx(t, 0)] for t in range(n)])
 
@@ -92,16 +101,31 @@ def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start):
 def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
                       pv_forecast_3d, start_day=SIM_START_DAY, num_days=SIM_NUM_DAYS):
     """
-    Question 3 rolling-horizon MPC from Feb 1 to Dec 31 2025.
-
-    A baseline plan P_plan is committed at 0:00 from the rolling net-load
-    forecast (the same day-ahead baseline as Question 2). At each rolling
-    epoch (0:00/6:00/12:00/18:00) the newly arrived Annex 3 PV forecast and
-    the current battery state are used to re-optimise the remaining purchase
-    schedule P_adj. Real-time battery-first dispatch then settles against the
-    actual load/PV, with emergency purchases covering residual deficits.
+    问题 3 闭环滚动 MPC 仿真引擎 (2025.2.1 - 12.31，共 334 天)。
+    
+    1. 暖机对齐：严格执行 1 月份 (31天) 自然物理暖机，继承真实的 1月31日 24:00 残存电量；
+    2. 日前计划：0:00 完全复用 Q2 的两阶段鲁棒 LP，确保基准成本与套利行为无缝对齐；
+    3. 日内滚动：仅在 6:00、12:00、18:00 基于实际残存 SoC 与更新预报进行优化；
+    4. 物理状态机：逐 10 分钟执行实时偏差吸收与 5 倍重罚结算。
     """
+    if start_day < WARMUP_DAYS:
+        raise ValueError("start_day 必须 >= 31，以保证 1 月份完成自然预热闭环")
+
+    # --- 阶段 0: 1 月份 31 天无缝暖机预热 (与 Q2 完全一致) ---
     e_current = float(E_INIT)
+    for d in range(start_day):
+        t_start = d * STEPS_PER_DAY
+        tariff_d = tariffs_matrix[d] if tariffs_matrix.ndim == 2 else tariffs_matrix
+        net_robust = get_robust_net_load(load_actual_all[:t_start], pv_actual_all[:t_start])
+        p_plan_d = solve_stage1_lp(net_robust, tariff_d, e_current)
+        _, _, _, _, e_current = _real_time_dispatch(
+            p_plan_d,
+            load_actual_all[t_start:t_start + STEPS_PER_DAY],
+            pv_actual_all[t_start:t_start + STEPS_PER_DAY],
+            e_current,
+        )
+
+    # --- 阶段 1: 2月1日 至 12月31日 逐日 MPC 滚动运行 ---
     total_cost_all = 0.0
     total_planned_cost = 0.0
     total_adjust_cost = 0.0
@@ -123,28 +147,35 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
         load_act_d = np.asarray(load_actual_all[t_start:t_end], dtype=float)
         pv_act_d = np.asarray(pv_actual_all[t_start:t_end], dtype=float)
 
-        load_pred_d = get_baseline_load_forecast(load_actual_all[:t_start])
-        pv_pred_d = get_baseline_pv_forecast(pv_actual_all[:t_start])
-        p_plan_kw = np.maximum(0.0, (load_pred_d - pv_pred_d) * SAFETY_BUFFER_ALPHA)
+        # 0:00 决策时刻：严格继承 Q2 鲁棒净负荷与日前经济 LP
+        net_robust = get_robust_net_load(load_actual_all[:t_start], pv_actual_all[:t_start])
+        p_plan_kw = solve_stage1_lp(net_robust, tariff_d, e_current)
 
+        # 初始执行序列：在 6:00 调整前，严格执行日前计划
         p_adj_final = p_plan_kw.copy()
+
         p_em_day = np.zeros(STEPS_PER_DAY)
         p_chg_day = np.zeros(STEPS_PER_DAY)
         p_dis_day = np.zeros(STEPS_PER_DAY)
         e_bat_day = np.zeros(STEPS_PER_DAY)
 
+        # 逐 10 分钟状态机仿真
         for t in range(STEPS_PER_DAY):
-            if t in ROLLING_EPOCHS:
+            # 仅在 6:00, 12:00, 18:00 触发 MPC 滚动重规划
+            if t in INTRA_DAY_EPOCHS:
                 pv_fc_h = get_pv_forecast_10min(
                     pv_forecast_3d, day_idx, ISSUE_HOUR_BY_EPOCH[t]
                 )
                 pv_fc_h = np.where(np.isnan(pv_fc_h), 0.0, pv_fc_h)
+                
+                # 剩余时段滚动重排产 (采用鲁棒安全边界的净负荷防范)
                 p_adj_new = solve_epoch_lp(
-                    p_plan_kw[t:], pv_fc_h[t:], load_pred_d[t:],
+                    p_plan_kw[t:], pv_fc_h[t:], net_robust[t:],
                     tariff_d[t:], e_current,
                 )
                 p_adj_final[t:] = p_adj_new
 
+            # 真实物理状态机执行 (基于当前锁定的 p_adj_final)
             deficit_kw = max(0.0, load_act_d[t] - (p_adj_final[t] + pv_act_d[t]))
             surplus_kw = max(0.0, (p_adj_final[t] + pv_act_d[t]) - load_act_d[t])
 
@@ -164,13 +195,13 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
             p_dis_day[t] = p_dis
             e_bat_day[t] = e_current
 
+        # 每日结算费用计算
         dpp = np.maximum(0.0, p_adj_final - p_plan_kw)
         dpm = np.maximum(0.0, p_plan_kw - p_adj_final)
 
         planned_cost_day = float(np.sum(tariff_d * p_plan_kw * DELTA_T))
         adjust_cost_day = float(
-            np.sum((PENALTY_ADD * tariff_d * dpp
-                    + PENALTY_REDUCE * tariff_d * dpm) * DELTA_T)
+            np.sum((PENALTY_ADD * tariff_d * dpp + PENALTY_REDUCE * tariff_d * dpm) * DELTA_T)
         )
         emergency_cost_day = float(
             np.sum(PENALTY_EMERGENCY * tariff_d * p_em_day * DELTA_T)
@@ -206,6 +237,7 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
         "total_adjust_cost": total_adjust_cost,
         "total_emergency_cost": total_emergency_cost,
         "total_cost": total_cost_all,
+        "warmup_end_soc": e_current,
         "start_day": start_day,
         "num_days": num_days,
     }

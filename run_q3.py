@@ -1,27 +1,30 @@
+import os
 import pandas as pd
 
 from src.data_loader import load_annex1_tariffs, load_annex2_actuals, load_annex3_forecasts
 from src.mpc_q3 import run_q3_simulation
-from src.export_tools import export_result, RESULTS_DIR
+from src.export_tools import export_q3_result, RESULTS_DIR
 from src.simulator_q2 import run_q2_simulation
 
 
 def main():
+    # 1. 加载官方基础数据
     tariffs = load_annex1_tariffs()
     load_act, pv_act = load_annex2_actuals()
     pv_forecast = load_annex3_forecasts()
 
+    # 2. 运行 Q3 滚动预测控制 (MPC) 仿真 (2025.2.1 - 2025.12.31, 334天)
     res_q3 = run_q3_simulation(tariffs, load_act, pv_act, pv_forecast)
-    export_result("result3.xlsx", {
-        "P_plan_kWh": res_q3["p_plan_kwh"],
-        "P_adj_kWh": res_q3["p_adj_kwh"],
-        "P_em_kWh": res_q3["p_em_kwh"],
-        "E_bat_kWh": res_q3["e_bat_kwh"]
-    })
 
+    # 3. 严格按照官方 Annex5_Templates/result3.xlsx 模板格式规范导出 4 个工作表
+    export_q3_result(res_q3, tariffs)
+
+    # 4. 运行 Q2 基线对比，计算信息价值增益与节费率
     res_q2 = run_q2_simulation(tariffs, load_act, pv_act)
     reduction = res_q2["total_cost"] - res_q3["total_cost"]
     reduction_pct = 100.0 * reduction / res_q2["total_cost"]
+
+    # 5. 打印并持久化 Q3 宏观决策看板
     summary = pd.DataFrame({
         "Metric": [
             "Total Day-Ahead Planned Energy (kWh)",
@@ -49,9 +52,11 @@ def main():
     print("\n=== Question 3 Summary (Rolling MPC) ===")
     print(summary.to_string(index=False))
 
-    summary.to_csv(f"{RESULTS_DIR}/q3_summary.csv", index=False)
-    summary.to_excel(f"{RESULTS_DIR}/q3_summary.xlsx", index=False)
-    print(f"[SUCCESS] Q3 summary saved to: {RESULTS_DIR}/q3_summary.csv and q3_summary.xlsx")
+    summary_csv = os.path.join(RESULTS_DIR, "q3_summary.csv")
+    summary_xlsx = os.path.join(RESULTS_DIR, "q3_summary.xlsx")
+    summary.to_csv(summary_csv, index=False)
+    summary.to_excel(summary_xlsx, index=False)
+    print(f"[SUCCESS] Q3 summary saved to: {summary_csv} and {summary_xlsx}")
 
 
 if __name__ == "__main__":

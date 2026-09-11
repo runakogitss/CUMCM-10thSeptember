@@ -4,6 +4,6 @@ Two-Stage Optimized Q2 Cost (Yuan),16085410.43
 Cost Reduction (Yuan),2746637.03
 Cost Reduction (%),14.58
 Total Day-Ahead Planned Energy (kWh),24764475.21
-Total Emergency Purchased Energy (kWh),105491.12
+Total Emergency Purchase Volume (kWh),105491.12
 Emergency Penalty Cost (Yuan),636153.46
-Emergency Penalty Percentage of Total Cost (%),3.95
+Warm-up end SOC at Jan 31 24:00 (kWh),3391.87

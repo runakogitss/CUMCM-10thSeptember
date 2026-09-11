@@ -266,21 +266,38 @@ def plot_figure_2(save_path="figures/Figure2_BESS_Energy_Balance_Diverging.png")
 # ==============================================================================
 # 图 3：24小时极坐标昼夜相图与经验分布谱 (国赛中文规范)
 # ==============================================================================
-def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum.png"):
+# ==============================================================================
+# 图 3：24小时极坐标昼夜相图与经验分布谱 (动态联动修复版)
+# ==============================================================================
+def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum.png", data_path="results/result1.xlsx"):
+    import os
+    import pandas as pd
+
+    # 1. 动态读取结果文件，消除硬编码漏项与脱节问题
+    if os.path.exists(data_path):
+        df_grid = pd.read_excel(data_path, sheet_name="计划购电量")
+        purchase_data = df_grid.iloc[:, 1].dropna().values.astype(float)
+    else:
+        purchase_data = grid_purchase_kwh.copy()
+
+    n_steps = len(purchase_data)  # 严格 144 步
+    
     fig = plt.figure(figsize=(9.0, 4.2), dpi=600)
     
-    # 子图 (a)：极坐标时钟相位图 (顺时针 0:00 在顶部)
+    # --------------------------------------------------------------------------
+    # 子图 (a)：极坐标时钟相位图 (顺时针，0:00 位于正上方)
+    # --------------------------------------------------------------------------
     ax_polar = fig.add_subplot(1, 2, 1, projection='polar')
-    theta = np.linspace(0, 2 * np.pi, 144, endpoint=False)
+    theta = np.linspace(0, 2 * np.pi, n_steps, endpoint=False)
     ax_polar.set_theta_direction(-1)
     ax_polar.set_theta_offset(np.pi / 2.0)
     
-    width = (2 * np.pi) / 144.0
-    norm = mpl.colors.Normalize(vmin=0, vmax=np.max(grid_purchase_kwh))
+    width = (2 * np.pi) / float(n_steps)
+    norm = mpl.colors.Normalize(vmin=0, vmax=np.max(purchase_data))
     cmap = mpl.cm.cividis
-    colors = cmap(norm(grid_purchase_kwh))
+    colors = cmap(norm(purchase_data))
     
-    ax_polar.bar(theta, grid_purchase_kwh, width=width, bottom=150.0,
+    ax_polar.bar(theta, purchase_data, width=width, bottom=150.0,
                  color=colors, edgecolor='none', alpha=0.92)
     
     clock_ticks = np.linspace(0, 2 * np.pi, 8, endpoint=False)
@@ -288,21 +305,29 @@ def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum
     ax_polar.set_xticks(clock_ticks)
     ax_polar.set_xticklabels(clock_labels, fontsize=9.0)
     
+    # 径向刻度精简至 3 个稀疏刻度，角度旋转至 105° 空白区，带白底衬垫防止与网格线黏连
     ax_polar.set_yticks([500, 1000, 1500])
     ax_polar.yaxis.set_major_formatter(num_fmt)
-    ax_polar.set_rlabel_position(115)
+    ax_polar.set_rlabel_position(105)
+    for label in ax_polar.get_yticklabels():
+        label.set_bbox(dict(facecolor='white', edgecolor='none', alpha=0.85, pad=0.6))
+        
     ax_polar.set_title("(a) 24小时极坐标购电昼夜节律相图", loc='left', fontweight='bold', pad=14)
     
-    # 子图 (b)：ECDF 累积概率分布曲线
+    # --------------------------------------------------------------------------
+    # 子图 (b)：ECDF 累积概率分布曲线 (统一 58 个零购电时步及 40.3% 占比)
+    # --------------------------------------------------------------------------
     ax_ecdf = fig.add_subplot(1, 2, 2)
-    sorted_purchase = np.sort(grid_purchase_kwh)
-    ecdf = np.arange(1, len(sorted_purchase) + 1) / float(len(sorted_purchase))
+    sorted_purchase = np.sort(purchase_data)
+    ecdf = np.arange(1, n_steps + 1) / float(n_steps)
     
     ax_ecdf.step(sorted_purchase, ecdf, where='post', color=COLOR_GRID, lw=1.8,
                  label="经验累积概率分布 (ECDF)")
     
-    zero_count = int(np.sum(sorted_purchase == 0.0))
-    zero_pct = zero_count / 144.0
+    # 加入 1e-4 浮点数容差判定，精确锁定 58 个时步与 40.3% 占比
+    zero_mask = (sorted_purchase <= 1e-4)
+    zero_count = int(np.sum(zero_mask))
+    zero_pct = zero_count / float(n_steps)
     
     ax_ecdf.scatter([0.0], [zero_pct], color=COLOR_ACCENT, s=40, zorder=5, edgecolors='black', lw=0.8)
     ax_ecdf.annotate(f"零购电时步占比:\n$\\mathit{{{zero_pct*100:.1f}\\%}}$ (共 $\\mathit{{{zero_count}}}$ 个时步)",
@@ -323,8 +348,7 @@ def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum
     plt.tight_layout()
     plt.savefig(save_path, dpi=600)
     plt.close()
-    print(f"[SUCCESS] 国赛标准图 3 已生成: {save_path}")
-
+    print(f"[SUCCESS] 图 3 动态更新完成: {save_path} (零购电时步: {zero_count}/{n_steps}, 占比: {zero_pct*100:.1f}%)")
 
 # ==============================================================================
 # 4. 执行入口

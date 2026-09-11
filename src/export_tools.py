@@ -92,7 +92,7 @@ def export_q2_result(res):
     purchase occurrence.
     """
     template_path = os.path.join(TEMPLATES_DIR, "result2.xlsx")
-    out_path = os.path.join(RESULTS_DIR, "result2.xlsx")
+    out_path = os.path.join(RESULTS_DIR, "Q2_optimized.xlsx")
     _ensure_dir(RESULTS_DIR)
 
     wb = load_workbook(template_path)
@@ -104,6 +104,7 @@ def export_q2_result(res):
     p_chg = res["p_chg_kwh"]
     p_dis = res["p_dis_kwh"]
     e_bat = res["e_bat_kwh"]
+    p_em_cost = res["p_em_cost"]
     e_day_start = res["e_day_start"]
 
     ws1 = wb["计划购电量"]
@@ -143,37 +144,48 @@ def export_q2_result(res):
     ws3 = wb["紧急购电量"]
     if ws3.max_row >= 2:
         ws3.delete_rows(2, ws3.max_row)
+    ws3.cell(row=1, column=4, value="持续时长(h)")
+    ws3.cell(row=1, column=5, value="罚金(元)")
     row = 2
     for d in range(num_days):
         date_val = Q2_START_DATE + timedelta(days=d)
         day_em = p_em[d * steps:(d + 1) * steps]
+        day_em_cost = p_em_cost[d * steps:(d + 1) * steps]
         runs = _contiguous_runs(day_em > 1e-9)
         ws3.cell(row=row, column=1, value=date_val)
         if runs:
             a, b = runs[0]
+            duration = (b - a + 1) * DELTA_T
             ws3.cell(row=row, column=2,
                      value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
             ws3.cell(row=row, column=3,
                      value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
+            ws3.cell(row=row, column=4, value=float(round(duration, 4)))
+            ws3.cell(row=row, column=5,
+                     value=float(round(float(np.sum(day_em_cost[a:b + 1])), 4)))
         row += 1
         for a, b in runs[1:]:
+            duration = (b - a + 1) * DELTA_T
             ws3.cell(row=row, column=2,
                      value=f"{_step_time_label(a)}-{_step_time_label(b + 1)}")
             ws3.cell(row=row, column=3,
                      value=float(round(float(np.sum(day_em[a:b + 1])), 4)))
+            ws3.cell(row=row, column=4, value=float(round(duration, 4)))
+            ws3.cell(row=row, column=5,
+                     value=float(round(float(np.sum(day_em_cost[a:b + 1])), 4)))
             row += 1
 
     wb.save(out_path)
-    print(f"[SUCCESS] Q2 deliverables correctly mapped to: {out_path}")
+    print(f"[SUCCESS] Q2 optimized deliverables correctly mapped to: {out_path}")
 
     long_df = pd.DataFrame({
         "P_plan_kWh": p_plan,
         "P_em_kWh": p_em,
         "E_bat_kWh": e_bat,
     })
-    csv_path = os.path.join(RESULTS_DIR, "result2.csv")
+    csv_path = os.path.join(RESULTS_DIR, "Q2_optimized.csv")
     long_df.to_csv(csv_path, index=False)
-    print(f"[SUCCESS] Q2 long-format series saved to: {csv_path}")
+    print(f"[SUCCESS] Q2 optimized long-format series saved to: {csv_path}")
     return out_path
 
 

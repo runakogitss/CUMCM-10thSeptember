@@ -8,14 +8,14 @@ from src.data_loader import (
     split_prior_and_simulation,
 )
 from src.solver_q1 import solve_q1
-from src.simulator_q2 import run_q2_simulation
+from src.simulator_q2 import run_q2_simulation, run_q2_baseline_simulation
 from src.mpc_q3 import run_q3_simulation
 from src.export_tools import export_result, export_q1_result, export_q2_result, RESULTS_DIR
 
 
-def _print_q3_summary(res, res_q2):
-    reduction = res_q2["total_cost"] - res["total_cost"]
-    reduction_pct = 100.0 * reduction / res_q2["total_cost"] if res_q2["total_cost"] else 0.0
+def _print_q3_summary(res, q2_baseline_cost):
+    reduction = q2_baseline_cost - res["total_cost"]
+    reduction_pct = 100.0 * reduction / q2_baseline_cost if q2_baseline_cost else 0.0
     summary = pd.DataFrame({
         "Metric": [
             "Total Day-Ahead Planned Energy (kWh)",
@@ -52,30 +52,39 @@ def _print_q3_summary(res, res_q2):
     return summary
 
 
-def _print_q2_summary(res):
+def _print_q2_summary(res, baseline_cost):
     total_cost = res["total_cost"]
     emergency_share = 100.0 * res["total_emergency_cost"] / total_cost if total_cost else 0.0
+    savings = baseline_cost - total_cost
     summary = pd.DataFrame({
         "Metric": [
+            "Baseline Q2 Cost (Yuan)",
+            "Two-Stage Optimized Q2 Cost (Yuan)",
+            "Cost Reduction (Yuan)",
+            "Cost Reduction (%)",
             "Total Day-Ahead Planned Energy (kWh)",
             "Total Emergency Purchased Energy (kWh)",
-            "Total Cost for Question 2 (Yuan)",
+            "Emergency Penalty Cost (Yuan)",
             "Emergency Penalty Percentage of Total Cost (%)",
         ],
         "Value": [
+            round(baseline_cost, 2),
+            round(total_cost, 2),
+            round(savings, 2),
+            round(100.0 * savings / baseline_cost, 2),
             round(res["total_plan_kwh"], 2),
             round(res["total_em_kwh"], 2),
-            round(total_cost, 2),
+            round(res["total_emergency_cost"], 2),
             round(emergency_share, 2),
         ],
     })
-    print("\n=== Question 2 Summary ===")
+    print("\n=== Question 2 Summary (Two-Stage Robust & Arbitrage) ===")
     print(summary.to_string(index=False))
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    summary_path = os.path.join(RESULTS_DIR, "q2_summary.csv")
+    summary_path = os.path.join(RESULTS_DIR, "Q2_optimized_summary.csv")
     summary.to_csv(summary_path, index=False)
-    summary_xlsx_path = os.path.join(RESULTS_DIR, "q2_summary.xlsx")
+    summary_xlsx_path = os.path.join(RESULTS_DIR, "Q2_optimized_summary.xlsx")
     summary.to_excel(summary_xlsx_path, index=False)
     print(f"[SUCCESS] Q2 summary saved to: {summary_path} and {summary_xlsx_path}")
     return summary
@@ -100,8 +109,9 @@ def main():
           f"simulation window (Feb-Dec): {len(load_sim)} steps")
 
     res_q2 = run_q2_simulation(tariffs_q1, load_act, pv_act)
+    baseline_cost = run_q2_baseline_simulation(tariffs_q1, load_act, pv_act)["total_cost"]
     export_q2_result(res_q2)
-    _print_q2_summary(res_q2)
+    _print_q2_summary(res_q2, baseline_cost)
 
     # 3. Question 3 Solution (rolling-horizon MPC with Annex 3 PV forecasts)
     pv_forecast = load_annex3_forecasts()
@@ -112,7 +122,7 @@ def main():
         "P_em_kWh": res_q3["p_em_kwh"],
         "E_bat_kWh": res_q3["e_bat_kwh"]
     })
-    _print_q3_summary(res_q3, res_q2)
+    _print_q3_summary(res_q3, baseline_cost)
 
     # 4. Question 4 (Dynamic Tariffs on Q2/Q3 Frameworks)
     dynamic_tariffs = load_annex4_dynamic_tariffs()

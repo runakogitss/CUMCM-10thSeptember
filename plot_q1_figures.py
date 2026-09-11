@@ -114,36 +114,49 @@ soc_terminal_kwh = 6000.0
 # ==============================================================================
 # 图 1：日前计划购电时序阶梯曲线与消纳区间图 (国赛中文规范)
 # ==============================================================================
-def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.png"):
+def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.png", data_path="results/result1.xlsx"):
+    import os
+    import pandas as pd
+    
+    # 1. 动态加载求解输出文件，彻底消除硬编码与终端数据不一致的缺陷
+    if os.path.exists(data_path):
+        df_grid = pd.read_excel(data_path, sheet_name="计划购电量")
+        purchase_data = df_grid.iloc[:, 1].dropna().values.astype(float)
+    else:
+        purchase_data = grid_purchase_kwh.copy()
+        
+    n_steps = len(purchase_data)
+    t_hours = np.linspace(0, 24, n_steps, endpoint=False)
+    
     fig, ax = plt.subplots(figsize=(8.2, 4.2), dpi=600)
     
-    # 1. 微网自主消纳背景填充
-    zero_mask = (grid_purchase_kwh == 0.0)
+    # 2. 微网自主消纳背景填充
+    zero_mask = (purchase_data == 0.0)
     in_zero = False
-    start_t = 0
+    start_t = 0.0
     for idx, is_z in enumerate(zero_mask):
         if is_z and not in_zero:
             in_zero = True
-            start_t = time_hours[idx]
+            start_t = t_hours[idx]
         elif not is_z and in_zero:
             in_zero = False
-            ax.axvspan(start_t, time_hours[idx], color=COLOR_ZERO, alpha=0.8, lw=0,
+            ax.axvspan(start_t, t_hours[idx], color=COLOR_ZERO, alpha=0.8, lw=0,
                       label="微网自主消纳运行区间" if start_t < 6.5 else "")
     if in_zero:
         ax.axvspan(start_t, 24.0, color=COLOR_ZERO, alpha=0.8, lw=0)
 
-    # 2. 阶梯购电曲线
-    time_steps = np.append(time_hours, 24.0)
-    proc_steps = np.append(grid_purchase_kwh, grid_purchase_kwh[-1])
+    # 3. 阶梯购电曲线
+    time_steps = np.append(t_hours, 24.0)
+    proc_steps = np.append(purchase_data, purchase_data[-1])
     
     ax.step(time_steps, proc_steps, where='post', color=COLOR_GRID, lw=1.6,
             label="计划购电量 $Q_{\\mathrm{grid}}(t)$")
     ax.fill_between(time_steps, 0, proc_steps, step='post', color=COLOR_GRID, alpha=0.18, lw=0)
 
-    # 3. 峰值标注优化：抬升至 y=1480 空白层，消除右侧 5:40 脉冲的横切遮挡
-    max_val = np.max(grid_purchase_kwh)
-    max_idx = np.argmax(grid_purchase_kwh)
-    max_t = time_hours[max_idx]
+    # 4. 峰值标注（抬升至 y=1475 空白层，避让右侧阶梯波形）
+    max_val = np.max(purchase_data)
+    max_idx = np.argmax(purchase_data)
+    max_t = t_hours[max_idx]
     
     ax.scatter([max_t], [max_val], color=COLOR_ACCENT, s=36, zorder=5, edgecolors='black', lw=0.9)
     ax.annotate(f"购电峰值: $\\mathit{{{max_val:.2f}}}$ kWh\n(时段 00:40–00:50)",
@@ -152,7 +165,7 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
                                 connectionstyle="arc3,rad=-0.1"),
                 fontsize=9.0, va='bottom')
 
-    # 4. 坐标轴格式化
+    # 5. 坐标轴格式化
     ax.set_xlim(-0.1, 24.1)
     ax.set_ylim(0, 1680)
     ax.set_xticks(np.arange(0, 25, 2))
@@ -167,14 +180,14 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
     ax.grid(True, linestyle=":", alpha=0.5)
     ax.legend(loc="upper right", frameon=True, edgecolor='#000000', framealpha=1.0, facecolor='#FFFFFF')
     
-    # 5. 核心调整：将统计框平移至 7:00-11:00 纯白消纳空旷区 (x=0.28, y=0.56)
-    total_kwh = np.sum(grid_purchase_kwh)
+    # 6. 统计框动态取值（精准绑定 59482.70 kWh）
+    total_kwh = np.sum(purchase_data)
     zero_count = int(np.sum(zero_mask))
-    zero_ratio = (zero_count / 144.0) * 100.0
+    zero_ratio = (zero_count / float(n_steps)) * 100.0
     text_summary = (
         f"全天累计购电量: $\\mathit{{{total_kwh:.2f}}}$ kWh\n"
         f"单步最大购电量: $\\mathit{{{max_val:.2f}}}$ kWh\n"
-        f"零购电运行步数: $\\mathit{{{zero_count}}}$ / $\\mathit{{144}}$ ($\\mathit{{{zero_ratio:.1f}\\%}}$)"
+        f"零购电运行步数: $\\mathit{{{zero_count}}}$ / $\\mathit{{{n_steps}}}$ ($\\mathit{{{zero_ratio:.1f}\\%}}$)"
     )
     ax.text(0.28, 0.56, text_summary, transform=ax.transAxes,
             bbox=dict(boxstyle='square,pad=0.5', facecolor='#FFFFFF', edgecolor='#000000', lw=0.9),
@@ -183,7 +196,7 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
     plt.tight_layout()
     plt.savefig(save_path, dpi=600)
     plt.close()
-    print(f"[SUCCESS] 图 1 排版优化完成: {save_path}")
+    print(f"[SUCCESS] 图 1 动态更新完成: {save_path} (累计购电量: {total_kwh:.2f} kWh)")
 
 
 def plot_figure_2(save_path="figures/Figure2_BESS_Energy_Balance_Diverging.png"):

@@ -9,8 +9,47 @@ from src.data_loader import (
 )
 from src.solver_q1 import solve_q1
 from src.simulator_q2 import run_q2_simulation
-from src.simulator_q3 import run_q3_simulation
+from src.mpc_q3 import run_q3_simulation
 from src.export_tools import export_result, export_q1_result, export_q2_result, RESULTS_DIR
+
+
+def _print_q3_summary(res, res_q2):
+    reduction = res_q2["total_cost"] - res["total_cost"]
+    reduction_pct = 100.0 * reduction / res_q2["total_cost"] if res_q2["total_cost"] else 0.0
+    summary = pd.DataFrame({
+        "Metric": [
+            "Total Day-Ahead Planned Energy (kWh)",
+            "Total Adjusted Purchase Energy (kWh)",
+            "Total Emergency Purchased Energy (kWh)",
+            "Baseline Purchase Cost (Yuan)",
+            "Adjustment Surcharge/Breach Cost (Yuan)",
+            "Emergency Penalty Cost (Yuan)",
+            "Total Settlement Cost Q3 (Yuan)",
+            "Cost Reduction vs Q2 (Yuan)",
+            "Cost Reduction vs Q2 (%)",
+        ],
+        "Value": [
+            round(res["total_plan_kwh"], 2),
+            round(res["total_adj_kwh"], 2),
+            round(res["total_em_kwh"], 2),
+            round(res["total_planned_cost"], 2),
+            round(res["total_adjust_cost"], 2),
+            round(res["total_emergency_cost"], 2),
+            round(res["total_cost"], 2),
+            round(reduction, 2),
+            round(reduction_pct, 2),
+        ],
+    })
+    print("\n=== Question 3 Summary (Rolling MPC) ===")
+    print(summary.to_string(index=False))
+
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    summary_path = os.path.join(RESULTS_DIR, "q3_summary.csv")
+    summary.to_csv(summary_path, index=False)
+    summary_xlsx_path = os.path.join(RESULTS_DIR, "q3_summary.xlsx")
+    summary.to_excel(summary_xlsx_path, index=False)
+    print(f"[SUCCESS] Q3 summary saved to: {summary_path} and {summary_xlsx_path}")
+    return summary
 
 
 def _print_q2_summary(res):
@@ -64,7 +103,7 @@ def main():
     export_q2_result(res_q2)
     _print_q2_summary(res_q2)
 
-    # 3. Question 3 Solution (intra-day adjustments with Annex 3 forecasts)
+    # 3. Question 3 Solution (rolling-horizon MPC with Annex 3 PV forecasts)
     pv_forecast = load_annex3_forecasts()
     res_q3 = run_q3_simulation(tariffs_q1, load_act, pv_act, pv_forecast)
     export_result("result3.xlsx", {
@@ -73,6 +112,7 @@ def main():
         "P_em_kWh": res_q3["p_em_kwh"],
         "E_bat_kWh": res_q3["e_bat_kwh"]
     })
+    _print_q3_summary(res_q3, res_q2)
 
     # 4. Question 4 (Dynamic Tariffs on Q2/Q3 Frameworks)
     dynamic_tariffs = load_annex4_dynamic_tariffs()

@@ -36,7 +36,9 @@ def _print_q2_summary(res):
     os.makedirs(RESULTS_DIR, exist_ok=True)
     summary_path = os.path.join(RESULTS_DIR, "q2_summary.csv")
     summary.to_csv(summary_path, index=False)
-    print(f"[SUCCESS] Q2 summary saved to: {summary_path}")
+    summary_xlsx_path = os.path.join(RESULTS_DIR, "q2_summary.xlsx")
+    summary.to_excel(summary_xlsx_path, index=False)
+    print(f"[SUCCESS] Q2 summary saved to: {summary_path} and {summary_xlsx_path}")
     return summary
 
 

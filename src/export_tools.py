@@ -165,23 +165,40 @@ def export_q2_result(res):
 
     wb.save(out_path)
     print(f"[SUCCESS] Q2 deliverables correctly mapped to: {out_path}")
+
+    long_df = pd.DataFrame({
+        "P_plan_kWh": p_plan,
+        "P_em_kWh": p_em,
+        "E_bat_kWh": e_bat,
+    })
+    csv_path = os.path.join(RESULTS_DIR, "result2.csv")
+    long_df.to_csv(csv_path, index=False)
+    print(f"[SUCCESS] Q2 long-format series saved to: {csv_path}")
     return out_path
 
 
 def export_result(file_name, data_dict):
     """
-    Writes generated data arrays to results/ (data/raw/ is read-only).
-    If the target file is locked (open in Excel), falls back to a copy
-    with a `_generated` suffix instead of crashing.
+    Writes generated data arrays to results/ in both xlsx and csv formats
+    (data/raw/ is read-only). If the target file is locked (open in Excel),
+    falls back to a copy with a `_generated` suffix instead of crashing.
     """
     _ensure_dir(RESULTS_DIR)
-    target_path = os.path.join(RESULTS_DIR, file_name)
+    base, ext = os.path.splitext(file_name)
     df = pd.DataFrame(data_dict)
     try:
-        df.to_excel(target_path, index=False)
-        print(f"[SUCCESS] Formatted energy outputs saved to: {target_path}")
+        df.to_excel(os.path.join(RESULTS_DIR, file_name), index=False)
+        print(f"[SUCCESS] Formatted energy outputs saved to: {os.path.join(RESULTS_DIR, file_name)}")
     except PermissionError:
-        base, ext = os.path.splitext(file_name)
-        fallback = os.path.join(RESULTS_DIR, f"{base}_generated{ext}")
-        df.to_excel(fallback, index=False)
-        print(f"[WARNING] {file_name} is open in Excel; results saved to: {fallback}")
+        fallback_xlsx = os.path.join(RESULTS_DIR, f"{base}_generated.xlsx")
+        df.to_excel(fallback_xlsx, index=False)
+        print(f"[WARNING] {file_name} is open in Excel; results saved to: {fallback_xlsx}")
+
+    try:
+        csv_path = os.path.join(RESULTS_DIR, f"{base}.csv")
+        df.to_csv(csv_path, index=False)
+        print(f"[SUCCESS] Formatted energy outputs saved to: {csv_path}")
+    except PermissionError:
+        fallback_csv = os.path.join(RESULTS_DIR, f"{base}_generated.csv")
+        df.to_csv(fallback_csv, index=False)
+        print(f"[WARNING] {file_name} csv is open; results saved to: {fallback_csv}")

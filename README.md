@@ -180,7 +180,4 @@ microgrid-dispatch/
 ├── results/                    # Generated excel result files (result1.xlsx - result4-3.xlsx)
 ├── README.md                   # System Architecture & Task Specification
 └── main.py                     # Primary pipeline execution entry point
-```text
-
----
 

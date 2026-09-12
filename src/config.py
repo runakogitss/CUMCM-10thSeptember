@@ -25,8 +25,13 @@ SAFETY_BUFFER_ALPHA = 1.10
 # Question 2 two-stage robust & arbitrage parameters
 # 锁定黄金基准三参数：严格复现论文 16,085,410.43 元
 ROBUST_Z = 0.625
-E_PLAN_MIN = 1700.0         # soft lower SOC bound in the Stage-1 LP (reserve above E_MIN)
+E_PLAN_MIN = 1700.0         # soft lower SOC bound in the Stage-1 LP / intra-day MPC (reserve above E_MIN)
 E_TERMINAL_TARGET = 4000.0  # cost-calibrated terminal SOC keeping Q2 cost at 16.08M
+
+# Bayesian credibility shrinkage for Annex 3 intra-day PV forecast innovation (Q3/Q4).
+# β = 0.20: shrink the day-ahead robust net load by only 20% of the forecast innovation
+# instead of a raw point-forecast subtraction, preserving the emergency safety cushion.
+BAYES_SHRINK_BETA = 0.20
 WARMUP_DAYS = 31            # January 1-31 prior warm-up window before Feb 1
 
 # Simulation calendar (2025)

@@ -75,6 +75,14 @@ def main():
     print("\n=== Q4 Sensitivity Highlights (Annex 4 Peak Price Spikes) ===")
     print(sens.to_string(index=False))
 
+    em_ok_3 = res_q4_3["total_em_kwh"] < 50000.0
+    em_ok_2 = res_q4_2["total_em_kwh"] < 50000.0
+    print("\n=== Q4 Emergency Volume Gate (< 50,000 kWh / year) ===")
+    print(f"  Q4-2 emergency kWh = {res_q4_2['total_em_kwh']:,.2f} "
+          f"({'PASS' if em_ok_2 else 'INFO'})")
+    print(f"  Q4-3 emergency kWh = {res_q4_3['total_em_kwh']:,.2f} "
+          f"({'PASS' if em_ok_3 else 'FAIL'})")
+
     summary.to_csv(f"{RESULTS_DIR}/q4_summary.csv", index=False)
     summary.to_excel(f"{RESULTS_DIR}/q4_summary.xlsx", index=False)
     sens.to_csv(f"{RESULTS_DIR}/q4_sensitivity.csv", index=False)

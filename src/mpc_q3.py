@@ -4,9 +4,11 @@ import scipy.optimize as opt
 from src.config import (
     DELTA_T, STEPS_PER_DAY, E_MIN, E_MAX, P_CHG_MAX, P_DIS_MAX,
     ETA_CHG, ETA_DIS, E_INIT, PENALTY_ADD, PENALTY_REDUCE, PENALTY_EMERGENCY,
-    E_TERMINAL_TARGET, WARMUP_DAYS, SIM_START_DAY, SIM_NUM_DAYS,
+    E_TERMINAL_TARGET, E_PLAN_MIN, WARMUP_DAYS, SIM_START_DAY, SIM_NUM_DAYS,
+    BAYES_SHRINK_BETA, get_baseline_pv_forecast,
 )
 from src.simulator_q2 import get_robust_net_load, solve_stage1_lp, _real_time_dispatch
+from src.data_loader import get_pv_forecast_10min
 
 # 严格遵循赛题规范：仅在 6:00 (step 36), 12:00 (step 72), 18:00 (step 108) 触发滚动调整
 INTRA_DAY_EPOCHS = (36, 72, 108)
@@ -23,7 +25,8 @@ def solve_epoch_lp(p_plan_h, net_fc_h, tariff_h, soc_start, e_terminal=E_TERMINA
     约束条件：
       1. 计划调整分解: P_adj - P_plan = ΔP+ - ΔP-
       2. 实时功率平衡: P_adj + P_dis + P_em = P_net + P_chg - P_curt
-      3. 电池状态转移与日末可持续性储备 E(144) >= e_terminal
+      3. 储能地板对齐: E(t) ∈ [E_PLAN_MIN, E_MAX] (1700 kWh 安全储备)
+      4. 电池状态转移与日末可持续性储备 E(144) >= e_terminal
     """
     n = len(p_plan_h)
     nvars = VARS_PER_STEP * n
@@ -46,7 +49,7 @@ def solve_epoch_lp(p_plan_h, net_fc_h, tariff_h, soc_start, e_terminal=E_TERMINA
         bounds.append((0.0, P_DIS_MAX))         # P_dis
         bounds.append((0.0, None))              # P_em
         bounds.append((0.0, None))              # P_curt
-        bounds.append((E_MIN, E_MAX))           # E_bat
+        bounds.append((E_PLAN_MIN, E_MAX))      # E_bat  (日内储能地板对齐，1700 kWh 安全储备)
 
     A_eq, b_eq = [], []
     for t in range(n):
@@ -153,6 +156,9 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
         net_robust = get_robust_net_load(load_actual_all[:t_start], pv_actual_all[:t_start])
         p_plan_kw = solve_stage1_lp(net_robust, tariff_d, e_current)
 
+        # 贝叶斯可信度收缩基线: μ_pv_baseline 与 Q2 鲁棒净负荷共用同一 7 天历史滚动窗口
+        mu_pv_baseline = get_baseline_pv_forecast(pv_actual_all[:t_start])
+
         p_adj_final = p_plan_kw.copy()
 
         p_em_day = np.zeros(STEPS_PER_DAY)
@@ -164,8 +170,18 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
         for t in range(STEPS_PER_DAY):
             # 仅在 6:00, 12:00, 18:00 基于真实当前电量 e_current 触发 MPC 滚动重规划
             if t in INTRA_DAY_EPOCHS:
+                # 贝叶斯可信度收缩: ΔP_pv = P_pv_forecast - μ_pv_baseline，
+                # 仅以 β = 0.20 的比例收缩鲁棒净负荷，绝不进行 β = 1.0 裸点预测相减
+                net_intra_h = net_robust
+                if pv_forecast_3d is not None:
+                    pv_fc_10min = get_pv_forecast_10min(pv_forecast_3d, day_idx, t // 6)
+                    if pv_fc_10min is not None:
+                        delta_pv = np.nan_to_num(pv_fc_10min) - mu_pv_baseline
+                        net_intra_h = np.maximum(
+                            0.0, net_robust - BAYES_SHRINK_BETA * delta_pv,
+                        )
                 p_adj_new = solve_epoch_lp(
-                    p_plan_kw[t:], net_robust[t:],
+                    p_plan_kw[t:], net_intra_h[t:],
                     tariff_d[t:], e_current,
                 )
                 p_adj_final[t:] = p_adj_new

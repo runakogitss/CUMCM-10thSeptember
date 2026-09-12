@@ -26,14 +26,13 @@ FORECAST_WINDOW_DAYS = 7    # Rolling look-back window for the 0:00 forecast
 SAFETY_BUFFER_ALPHA = 1.10
 
 # Question 2 two-stage robust & arbitrage parameters
-# ROBUST_Z is the normal-quantile hedge for the 5:1 emergency penalty. The
-# textbook 80th-percentile value is 0.842; 0.625 is the cost-calibrated value
-# once the real-time battery absorbs forecast deviations.
-ROBUST_Z = 0.625
-E_PLAN_MIN = 1700.0         # soft lower SOC bound in the Stage-1 LP (reserve above E_MIN)
-# Stage-1 terminal SOC anchor. 6000 is the textbook inter-day target; 4000 is
-# the cost-calibrated value that keeps the total Q2 cost in the ~16M range.
-E_TERMINAL_TARGET = 4000.0
+# ROBUST_Z is the standard-normal hedge for the day-ahead net-load estimate.
+# From the Q3 intra-day balancing newsvendor: under-procurement penalty
+# C_u = 1.5c - c = 0.5c, over-procurement credit C_o = c - 0.5c = 0.5c, so the
+# critical fractile is alpha* = C_u/(C_u+C_o) = 0.50 and Z* = Phi^-1(0.50) = 0.0.
+ROBUST_Z = 0.0
+E_PLAN_MIN = 1200.0         # exact lower battery capacity bound E_min
+E_TERMINAL_TARGET = 6000.0  # equals E_INIT for cyclic daily equilibrium
 WARMUP_DAYS = 31            # January 1-31 prior warm-up window before Feb 1
 
 # Simulation calendar (2025)

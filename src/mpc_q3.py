@@ -6,7 +6,6 @@ from src.config import (
     ETA_CHG, ETA_DIS, E_INIT, PENALTY_ADD, PENALTY_REDUCE, PENALTY_EMERGENCY,
     E_TERMINAL_TARGET, WARMUP_DAYS, SIM_START_DAY, SIM_NUM_DAYS,
 )
-from src.data_loader import get_pv_forecast_10min
 from src.simulator_q2 import get_robust_net_load, solve_stage1_lp, _real_time_dispatch
 
 # 严格遵循赛题规范：仅在 6:00 (step 36), 12:00 (step 72), 18:00 (step 108) 触发滚动调整
@@ -18,11 +17,13 @@ ISSUE_HOUR_BY_EPOCH = {36: 6, 72: 12, 108: 18}
 VARS_PER_STEP = 8
 
 
-def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start, e_terminal=E_TERMINAL_TARGET):
+def solve_epoch_lp(p_plan_h, load_fc_h, tariff_h, soc_start, e_terminal=E_TERMINAL_TARGET):
     """
     求解日内 MPC 滚动时域线性规划 (t_now -> 144 步)。
-    在满足功率平衡、电池物理边界与日末可持续性储备的前提下，
-    最小化日内调整惩罚 (增调 1.5c / 退调 0.5c) 与潜在紧急购电惩罚 (5c)。
+    目标函数: min Σ (c·P_plan + 1.5c·ΔP+ - 0.5c·ΔP- + 5c·P_em)·Δt。
+    其中 c·P_plan 为固定日前基础购电项(常数，不进入变量系数)；
+    退调 ΔP- 按 0.5c 返回结算(贷方项)。
+    约束满足功率平衡、电池物理边界与日末可持续性储备。
     """
     n = len(p_plan_h)
     nvars = VARS_PER_STEP * n
@@ -32,9 +33,9 @@ def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start, e_terminal
 
     c = np.zeros(nvars)
     for t in range(n):
-        c[idx(t, 1)] = PENALTY_ADD * tariff_h[t] * DELTA_T
-        c[idx(t, 2)] = PENALTY_REDUCE * tariff_h[t] * DELTA_T
-        c[idx(t, 5)] = PENALTY_EMERGENCY * tariff_h[t] * DELTA_T
+        c[idx(t, 1)] = PENALTY_ADD * tariff_h[t] * DELTA_T         # +1.5c ΔP+
+        c[idx(t, 2)] = -PENALTY_REDUCE * tariff_h[t] * DELTA_T     # -0.5c ΔP- (credit)
+        c[idx(t, 5)] = PENALTY_EMERGENCY * tariff_h[t] * DELTA_T   # +5c P_em
 
     bounds = []
     for t in range(n):
@@ -57,7 +58,9 @@ def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start, e_terminal
         A_eq.append(row)
         b_eq.append(float(p_plan_h[t]))
 
-        # 2. 功率动态平衡: P_adj + P_pv_fc + P_dis + P_em - P_chg - P_curt = P_load_fc
+        # 2. 功率动态平衡 (spec): P_adj + P_dis + P_em = P_load + P_chg - P_curt
+        #    P_load 为净负荷预测 (load - pv)，即调用方传入的鲁棒净负荷 load_fc_h，
+        #    P_curt 置于等式左侧并取负号 (弃电即供给侧损耗)。
         row = np.zeros(nvars)
         row[idx(t, 0)] = 1.0
         row[idx(t, 3)] = -1.0
@@ -65,7 +68,7 @@ def solve_epoch_lp(p_plan_h, pv_fc_h, load_fc_h, tariff_h, soc_start, e_terminal
         row[idx(t, 5)] = 1.0
         row[idx(t, 6)] = -1.0
         A_eq.append(row)
-        b_eq.append(float(load_fc_h[t] - pv_fc_h[t]))
+        b_eq.append(float(load_fc_h[t]))
 
         # 3. 储能 SoC 动态递推: E(t) - E(t-1) = (eta_chg * P_chg - P_dis / eta_dis) * dt
         row = np.zeros(nvars)
@@ -163,14 +166,9 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
         for t in range(STEPS_PER_DAY):
             # 仅在 6:00, 12:00, 18:00 触发 MPC 滚动重规划
             if t in INTRA_DAY_EPOCHS:
-                pv_fc_h = get_pv_forecast_10min(
-                    pv_forecast_3d, day_idx, ISSUE_HOUR_BY_EPOCH[t]
-                )
-                pv_fc_h = np.where(np.isnan(pv_fc_h), 0.0, pv_fc_h)
-                
-                # 剩余时段滚动重排产 (采用鲁棒安全边界的净负荷防范)
+                # 剩余时段滚动重排产 (基于鲁棒净负荷预测 net_robust，P_load = load - pv)
                 p_adj_new = solve_epoch_lp(
-                    p_plan_kw[t:], pv_fc_h[t:], net_robust[t:],
+                    p_plan_kw[t:], net_robust[t:],
                     tariff_d[t:], e_current,
                 )
                 p_adj_final[t:] = p_adj_new
@@ -201,7 +199,7 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
 
         planned_cost_day = float(np.sum(tariff_d * p_plan_kw * DELTA_T))
         adjust_cost_day = float(
-            np.sum((PENALTY_ADD * tariff_d * dpp + PENALTY_REDUCE * tariff_d * dpm) * DELTA_T)
+            np.sum((PENALTY_ADD * tariff_d * dpp - PENALTY_REDUCE * tariff_d * dpm) * DELTA_T)
         )
         emergency_cost_day = float(
             np.sum(PENALTY_EMERGENCY * tariff_d * p_em_day * DELTA_T)

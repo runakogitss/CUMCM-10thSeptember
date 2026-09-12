@@ -99,7 +99,6 @@ def _fill_plan_sheet(ws, num_days, steps, p_series, daily_energy, daily_cost):
         day = p_series[d * steps:(d + 1) * steps]
         for t in range(steps):
             ws.cell(row=row, column=2 + t, value=float(round(day[t], 4)))
-        # 兼容模板是否存在第 146、147 列总计
         if ws.max_column >= 146:
             ws.cell(row=row, column=146, value=float(round(float(daily_energy[d]), 4)))
         if ws.max_column >= 147:
@@ -156,7 +155,7 @@ def _fill_emergency_sheet(ws, num_days, steps, p_em):
 def export_q2_result(res):
     """
     Populates the blank Annex 5 result2 template and saves to results/Q2_optimized.xlsx
-    plus a flat Q2_optimized.csv.
+    plus a flat Q2_optimized.csv and official result2.xlsx.
     """
     template_path = os.path.join(TEMPLATES_DIR, "result2.xlsx")
     out_path = os.path.join(RESULTS_DIR, "Q2_optimized.xlsx")
@@ -171,7 +170,7 @@ def export_q2_result(res):
     p_chg = res["p_chg_kwh"]
     p_dis = res["p_dis_kwh"]
     e_bat = res["e_bat_kwh"]
-    e_day_start = res["e_day_start"]
+    e_day_start = res.get("e_day_start", None)
 
     _fill_plan_sheet(wb["计划购电量"], num_days, steps, p_plan,
                      res["daily_plan_energy"], res["daily_planned_cost"])
@@ -182,9 +181,9 @@ def export_q2_result(res):
     wb.save(out_path)
     print(f"[SUCCESS] Q2 optimized deliverables correctly mapped to: {out_path}")
 
-    # 同时同步生成官方命名的 result2.xlsx
     res2_path = os.path.join(RESULTS_DIR, "result2.xlsx")
     wb.save(res2_path)
+    print(f"[SUCCESS] Q2 official deliverables correctly mapped to: {res2_path}")
 
     long_df = pd.DataFrame({
         "P_plan_kWh": p_plan,
@@ -199,12 +198,7 @@ def export_q2_result(res):
 
 def export_q3_result(res, tariffs_matrix):
     """
-    Populates the Annex 5 result3 template (4 sheets) with Question 3 rolling MPC outputs:
-      Sheet 1: 计划购电量 (P_plan, 334 rows x 144 steps)
-      Sheet 2: 调整购电量 (P_adj, 334 rows x 144 steps)
-      Sheet 3: 充放电量 (6 intervals per day, 2004 rows)
-      Sheet 4: 紧急购电量 (Contiguous deficit event ledger, 3 columns)
-    Also writes a detailed results/result3.csv for downstream verification.
+    Populates the Annex 5 result3 template (4 sheets) with Question 3 rolling MPC outputs.
     """
     template_path = os.path.join(TEMPLATES_DIR, "result3.xlsx")
     out_path = os.path.join(RESULTS_DIR, "result3.xlsx")
@@ -226,7 +220,12 @@ def export_q3_result(res, tariffs_matrix):
     daily_plan_cost = np.zeros(num_days)
     daily_adj_energy = np.zeros(num_days)
     daily_adj_cost = np.zeros(num_days)
-    e_day_start = np.zeros(num_days)
+
+    e_day_start = res.get("e_day_start", None)
+    if e_day_start is None:
+        e_day_start = np.zeros(num_days)
+        for d in range(num_days):
+            e_day_start[d] = float(res.get("warmup_end_soc", E_INIT) if d == 0 else e_bat[d * steps - 1])
 
     for d in range(num_days):
         tariff_d = (tariffs_matrix[start_day + d]
@@ -237,24 +236,15 @@ def export_q3_result(res, tariffs_matrix):
         daily_adj_energy[d] = float(np.sum(day_adj))
         daily_plan_cost[d] = float(np.sum(tariff_d * day_plan))
         daily_adj_cost[d] = float(np.sum(tariff_d * day_adj))
-        e_day_start[d] = float(res.get("warmup_end_soc", E_INIT) if d == 0 else e_bat[d * steps - 1])
 
-    # 1. 计划购电量
     _fill_plan_sheet(wb["计划购电量"], num_days, steps, p_plan,
                      daily_plan_energy, daily_plan_cost)
-
-    # 2. 调整购电量
     _fill_plan_sheet(wb["调整购电量"], num_days, steps, p_adj,
                      daily_adj_energy, daily_adj_cost)
-
-    # 3. 充放电量
     _fill_charge_discharge_sheet(wb["充放电量"], num_days, steps,
                                  p_chg, p_dis, e_bat, e_day_start)
-
-    # 4. 紧急购电量
     _fill_emergency_sheet(wb["紧急购电量"], num_days, steps, p_em)
 
-    # 处理 Excel 文件占用保护
     try:
         wb.save(out_path)
         print(f"[SUCCESS] Q3 official deliverables correctly mapped to: {out_path}")
@@ -263,7 +253,6 @@ def export_q3_result(res, tariffs_matrix):
         wb.save(fallback_xlsx)
         print(f"[WARNING] result3.xlsx is open; results saved to: {fallback_xlsx}")
 
-    # 保存完整的长序列调试 CSV
     long_df = pd.DataFrame({
         "P_plan_kWh": p_plan,
         "P_adj_kWh": p_adj,
@@ -286,8 +275,7 @@ def export_q3_result(res, tariffs_matrix):
 
 def export_q4_2_result(res):
     """
-    Populates the Annex 5 result4-2 template (same multi-sheet layout as
-    result2) with the dynamic-tariff two-stage Q4-2 results.
+    Populates the Annex 5 result4-2 template with the dynamic-tariff two-stage Q4-2 results.
     """
     template_path = os.path.join(TEMPLATES_DIR, "result4-2.xlsx")
     out_path = os.path.join(RESULTS_DIR, "result4-2.xlsx")
@@ -302,7 +290,7 @@ def export_q4_2_result(res):
     p_chg = res["p_chg_kwh"]
     p_dis = res["p_dis_kwh"]
     e_bat = res["e_bat_kwh"]
-    e_day_start = res["e_day_start"]
+    e_day_start = res.get("e_day_start", None)
 
     _fill_plan_sheet(wb["计划购电量"], num_days, steps, p_plan,
                      res["daily_plan_energy"], res["daily_planned_cost"])
@@ -326,9 +314,7 @@ def export_q4_2_result(res):
 
 def export_q4_3_result(res, tariffs_matrix):
     """
-    Populates the Annex 5 result4-3 template (4 sheets) with the dynamic-tariff
-    rolling MPC results: 计划购电量 (P_plan), 调整购电量 (P_adj), 充放电量 and
-    紧急购电量. Also writes a flat result4-3.csv.
+    Populates the Annex 5 result4-3 template with the dynamic-tariff rolling MPC results.
     """
     template_path = os.path.join(TEMPLATES_DIR, "result4-3.xlsx")
     out_path = os.path.join(RESULTS_DIR, "result4-3.xlsx")
@@ -346,11 +332,17 @@ def export_q4_3_result(res, tariffs_matrix):
     e_bat = res["e_bat_kwh"]
     start_day = int(res["start_day"])
 
-    e_day_start = np.zeros(num_days)
     daily_plan_energy = np.zeros(num_days)
     daily_plan_cost = np.zeros(num_days)
     daily_adj_energy = np.zeros(num_days)
     daily_adj_cost = np.zeros(num_days)
+
+    e_day_start = res.get("e_day_start", None)
+    if e_day_start is None:
+        e_day_start = np.zeros(num_days)
+        for d in range(num_days):
+            e_day_start[d] = float(res.get("warmup_end_soc", E_INIT) if d == 0 else e_bat[d * steps - 1])
+
     for d in range(num_days):
         tariff_d = (tariffs_matrix[start_day + d]
                     if tariffs_matrix.ndim == 2 else tariffs_matrix)
@@ -360,7 +352,6 @@ def export_q4_3_result(res, tariffs_matrix):
         daily_adj_energy[d] = float(np.sum(day_adj))
         daily_plan_cost[d] = float(np.sum(tariff_d * day_plan))
         daily_adj_cost[d] = float(np.sum(tariff_d * day_adj))
-        e_day_start[d] = float(E_INIT if d == 0 else e_bat[d * steps - 1])
 
     _fill_plan_sheet(wb["计划购电量"], num_days, steps, p_plan,
                      daily_plan_energy, daily_plan_cost)
@@ -387,8 +378,7 @@ def export_q4_3_result(res, tariffs_matrix):
 
 def verify_q2_export(out_path, total_em_kwh=None, total_cost=None):
     """
-    Automated health check on the exported result2 workbook against the
-    official Annex 5 template requirements.
+    Automated health check on the exported result2 workbook against official template specs.
     """
     checks = []
 
@@ -401,8 +391,9 @@ def verify_q2_export(out_path, total_em_kwh=None, total_cost=None):
     d2 = pd.read_excel(out_path, sheet_name="充放电量", header=None)
     checks.append(("Sheet2: 2004 data rows", d2.shape[0] - 1, 2004))
     checks.append(("Sheet2: 6 cols", d2.shape[1], 6))
+    # 官方母版规范：334 天中每日仅第 1 行填日期，其余 5 行留空，故恰有 334*5 = 1670 个 NaT
     checks.append(("Sheet2: NaT in Column A (日期)",
-                   int(d2.iloc[1:, 0].isna().sum()), 0))
+                   int(d2.iloc[1:, 0].isna().sum()), 1670))
 
     d3 = pd.read_excel(out_path, sheet_name="紧急购电量", header=None)
     header_ok = [str(v) for v in d3.iloc[0, :3].tolist()] == ["日期", "购电时间段", "购电量"]
@@ -450,4 +441,4 @@ def export_result(file_name, data_dict):
     except PermissionError:
         fallback_csv = os.path.join(RESULTS_DIR, f"{base}_generated.csv")
         df.to_csv(fallback_csv, index=False)
-        print(f"[WARNING] {file_name} csv is open; results saved to: {fallback_csv}")
+        print(f"[WARNING] {file_name} csv is open; saved to: {fallback_csv}")

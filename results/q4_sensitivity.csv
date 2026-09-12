@@ -1,0 +1,7 @@
+Metric,Value
+Mean dynamic tariff (Yuan/kWh),0.7575
+Max dynamic tariff (Yuan/kWh),1.7936
+Peak tariff day/hour,Day 153 20:30
+Battery discharge in top-10% tariff hours (kWh),2454812.49
+Battery charge in bottom-10% tariff hours (kWh),991569.34
+Emergency energy in top-10% tariff hours (kWh),26741.09

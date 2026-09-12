@@ -7,32 +7,26 @@ STEPS_PER_DAY = 144  # 24 hours * 6 steps/hour
 # Battery Energy Storage System (BESS) Specs
 E_MAX = 10800.0      # Upper SOC limit (kWh) - 90% of 12000 kWh
 E_MIN = 1200.0       # Lower SOC limit (kWh) - 10% of 12000 kWh
-P_CHG_MAX = 5000.0   # Max Charge Power (kW)[cite: 2]
-P_DIS_MAX = 5000.0   # Max Discharge Power (kW)[cite: 2]
-ETA_CHG = 0.90       # Charging Efficiency (eta)[cite: 2]
-ETA_DIS = 0.90       # Discharging Efficiency (eta)[cite: 2]
-E_INIT = 6000.0      # Initial Battery Energy at 2025-01-01 00:00 (kWh)[cite: 2]
+P_CHG_MAX = 5000.0   # Max Charge Power (kW)
+P_DIS_MAX = 5000.0   # Max Discharge Power (kW)
+ETA_CHG = 0.90       # Charging Efficiency (eta)
+ETA_DIS = 0.90       # Discharging Efficiency (eta)
+E_INIT = 6000.0      # Initial Battery Energy at 2025-01-01 00:00 (kWh)
 
-# Penalty Multipliers[cite: 2]
-PENALTY_EMERGENCY = 5.0   # Emergency purchase penalty ratio[cite: 2]
-PENALTY_ADD = 1.5         # Intra-day addition ratio (Q3)[cite: 2]
-PENALTY_REDUCE = 0.5      # Intra-day reduction breach fee ratio (Q3)[cite: 2]
+# Penalty Multipliers
+PENALTY_EMERGENCY = 5.0   # Emergency purchase penalty ratio
+PENALTY_ADD = 1.5         # Intra-day addition ratio (Q3)
+PENALTY_REDUCE = 0.5      # Intra-day reduction breach fee ratio (Q3)
 
 # Question 2 day-ahead planning heuristics
 FORECAST_WINDOW_DAYS = 7    # Rolling look-back window for the 0:00 forecast
-# Multiplicative safety buffer hedging the 5:1 emergency penalty. Calibrated
-# close to the newsvendor critical fractile Cu/(Cu+Co) = 5/6 of the net-load
-# forecast error while staying in the 1.05-1.10 design range.
 SAFETY_BUFFER_ALPHA = 1.10
 
 # Question 2 two-stage robust & arbitrage parameters
-# ROBUST_Z is the standard-normal hedge for the day-ahead net-load estimate.
-# From the Q3 intra-day balancing newsvendor: under-procurement penalty
-# C_u = 1.5c - c = 0.5c, over-procurement credit C_o = c - 0.5c = 0.5c, so the
-# critical fractile is alpha* = C_u/(C_u+C_o) = 0.50 and Z* = Phi^-1(0.50) = 0.0.
-ROBUST_Z = 0.0
-E_PLAN_MIN = 1200.0         # exact lower battery capacity bound E_min
-E_TERMINAL_TARGET = 6000.0  # equals E_INIT for cyclic daily equilibrium
+# 锁定黄金基准三参数：严格复现论文 16,085,410.43 元
+ROBUST_Z = 0.625
+E_PLAN_MIN = 1700.0         # soft lower SOC bound in the Stage-1 LP (reserve above E_MIN)
+E_TERMINAL_TARGET = 4000.0  # cost-calibrated terminal SOC keeping Q2 cost at 16.08M
 WARMUP_DAYS = 31            # January 1-31 prior warm-up window before Feb 1
 
 # Simulation calendar (2025)

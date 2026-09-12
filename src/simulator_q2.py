@@ -152,19 +152,13 @@ def run_q2_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
                       start_day=SIM_START_DAY, num_days=SIM_NUM_DAYS):
     """
     Question 2 two-stage robust & arbitrage-optimised rolling framework.
-
-    Stage 0 (warm-up): January 1-31 is simulated with the same two-stage logic
-    so the battery SOC evolves naturally and seeds Feb 1 with the exact
-    January 31 terminal state.
-    Stage 1: a 144-step LP at 0:00 derives the day-ahead plan P_plan from the
-    80th-percentile robust net-load estimate with valley/peak arbitrage.
-    Stage 2: real-time battery-first dispatch against actual load/PV.
     """
     if start_day < WARMUP_DAYS:
         raise ValueError("start_day must be >= WARMUP_DAYS (31) so January is used as prior")
 
     e_current = float(E_INIT)
 
+    # 阶段 0：1 月份 31 天自然暖机
     for d in range(start_day):
         t_start = d * STEPS_PER_DAY
         tariff_d = tariffs_matrix[d] if tariffs_matrix.ndim == 2 else tariffs_matrix
@@ -176,6 +170,9 @@ def run_q2_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
             pv_actual_all[t_start:t_start + STEPS_PER_DAY],
             e_current,
         )
+
+    # 记录 1 月 31 日 24:00 结束时的真实储能电量
+    warmup_end_soc = float(e_current)
 
     total_cost_all = 0.0
     total_planned_cost = 0.0
@@ -248,7 +245,7 @@ def run_q2_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
         "total_planned_cost": total_planned_cost,
         "total_emergency_cost": total_emergency_cost,
         "total_cost": total_cost_all,
-        "warmup_end_soc": e_current,
+        "warmup_end_soc": warmup_end_soc,
         "start_day": start_day,
         "num_days": num_days,
     }

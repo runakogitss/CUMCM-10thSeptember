@@ -4,26 +4,27 @@ import scipy.optimize as opt
 from src.config import (
     DELTA_T, STEPS_PER_DAY, E_MIN, E_MAX, P_CHG_MAX, P_DIS_MAX,
     ETA_CHG, ETA_DIS, E_INIT, PENALTY_ADD, PENALTY_REDUCE, PENALTY_EMERGENCY,
-    E_TERMINAL_TARGET, WARMUP_DAYS, SIM_START_DAY, SIM_NUM_DAYS,
+    E_PLAN_MIN, E_TERMINAL_TARGET, WARMUP_DAYS, SIM_START_DAY, SIM_NUM_DAYS,
+    get_baseline_pv_forecast,
 )
+from src.data_loader import get_pv_forecast_10min
 from src.simulator_q2 import get_robust_net_load, solve_stage1_lp, _real_time_dispatch
 
-# 严格遵循赛题规范：仅在 6:00 (step 36), 12:00 (step 72), 18:00 (step 108) 触发滚动调整
+# 严格遵循赛题规范：在 6:00 (step 36), 12:00 (step 72), 18:00 (step 108) 触发滚动调整
 INTRA_DAY_EPOCHS = (36, 72, 108)
+ISSUE_HOUR_BY_EPOCH = {36: 6, 72: 12, 108: 18}
 
 # 决策变量布局 (每步 8 个变量):
 # 0: P_adj, 1: dP+, 2: dP-, 3: P_chg, 4: P_dis, 5: P_em, 6: P_curt, 7: E_bat
 VARS_PER_STEP = 8
 
 
-def solve_epoch_lp(p_plan_h, net_fc_h, tariff_h, soc_start, e_terminal=E_TERMINAL_TARGET):
+def solve_epoch_lp(p_plan_h, net_fc_h, tariff_h, soc_start,
+                    e_plan_min=E_PLAN_MIN, e_terminal=E_TERMINAL_TARGET):
     """
     求解日内 MPC 滚动时域线性规划 (t_now -> 144 步)。
     目标函数: min Σ (1.5c·ΔP+ - 0.5c·ΔP- + 5c·P_em)·Δt。
-    约束条件：
-      1. 计划调整分解: P_adj - P_plan = ΔP+ - ΔP-
-      2. 实时功率平衡: P_adj + P_dis + P_em = P_net + P_chg - P_curt
-      3. 电池状态转移与日末可持续性储备 E(144) >= e_terminal
+    严格对齐 E_PLAN_MIN (1700 kWh) 防御下限，杜绝储能底仓被非理性抽空。
     """
     n = len(p_plan_h)
     nvars = VARS_PER_STEP * n
@@ -46,7 +47,11 @@ def solve_epoch_lp(p_plan_h, net_fc_h, tariff_h, soc_start, e_terminal=E_TERMINA
         bounds.append((0.0, P_DIS_MAX))         # P_dis
         bounds.append((0.0, None))              # P_em
         bounds.append((0.0, None))              # P_curt
-        bounds.append((E_MIN, E_MAX))           # E_bat
+        # 储能下限严格对齐 Q2 的软防线 (1700 kWh)，预留 500 kWh 抗波动气囊
+        if t == 0:
+            bounds.append((min(e_plan_min, float(soc_start)), E_MAX))
+        else:
+            bounds.append((e_plan_min, E_MAX))
 
     A_eq, b_eq = [], []
     for t in range(n):
@@ -103,7 +108,7 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
                       pv_forecast_3d=None, start_day=SIM_START_DAY, num_days=SIM_NUM_DAYS):
     """
     问题 3 闭环滚动 MPC 仿真引擎 (2025.2.1 - 12.31，共 334 天)。
-    严格对齐 1 月自然暖机继承，利用真实 SoC 状态反馈重构日内最优响应。
+    严格对齐 1 月自然暖机继承，利用真实 SoC 状态反馈与附件 3 滚动预报重构日内最优响应。
     """
     if start_day < WARMUP_DAYS:
         raise ValueError("start_day 必须 >= 31，以保证 1 月份完成自然预热闭环")
@@ -153,6 +158,9 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
         net_robust = get_robust_net_load(load_actual_all[:t_start], pv_actual_all[:t_start])
         p_plan_kw = solve_stage1_lp(net_robust, tariff_d, e_current)
 
+        # 提取历史光伏基线，用于计算附件 3 预报信息增量
+        mu_pv_baseline = get_baseline_pv_forecast(pv_actual_all[:t_start])
+
         p_adj_final = p_plan_kw.copy()
 
         p_em_day = np.zeros(STEPS_PER_DAY)
@@ -162,10 +170,21 @@ def run_q3_simulation(tariffs_matrix, load_actual_all, pv_actual_all,
 
         # 逐 10 分钟物理状态机推进
         for t in range(STEPS_PER_DAY):
-            # 仅在 6:00, 12:00, 18:00 基于真实当前电量 e_current 触发 MPC 滚动重规划
+            # 仅在 6:00, 12:00, 18:00 基于真实当前电量 e_current 与最新附件 3 预报触发 MPC 滚动
             if t in INTRA_DAY_EPOCHS:
+                if pv_forecast_3d is not None:
+                    issue_h = ISSUE_HOUR_BY_EPOCH[t]
+                    pv_fc_epoch = get_pv_forecast_10min(pv_forecast_3d, day_idx, issue_h)
+                    pv_fc_epoch = np.nan_to_num(pv_fc_epoch, nan=0.0)
+                    
+                    # 贝叶斯信度收缩 (β=0.20)：既真实消费预报增量，又保持期望无偏，避免系统性超额买电
+                    pv_diff = pv_fc_epoch[t:] - mu_pv_baseline[t:]
+                    net_fc_intra = np.maximum(0.0, net_robust[t:] - 0.20 * pv_diff)
+                else:
+                    net_fc_intra = net_robust[t:]
+
                 p_adj_new = solve_epoch_lp(
-                    p_plan_kw[t:], net_robust[t:],
+                    p_plan_kw[t:], net_fc_intra,
                     tariff_d[t:], e_current,
                 )
                 p_adj_final[t:] = p_adj_new

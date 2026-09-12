@@ -1,10 +1,12 @@
 Metric,Value
-Total Day-Ahead Planned Energy (kWh),26160203.0
-Total Adjusted Purchase Energy (kWh),25775995.73
-Total Emergency Purchased Energy (kWh),89266.72
-Baseline Purchase Cost (Yuan),16393170.77
-Adjustment Surcharge/Breach Cost (Yuan),768556.16
-Emergency Penalty Cost (Yuan),455381.82
-Total Settlement Cost Q3 (Yuan),17617108.75
-Cost Reduction vs Q2 Baseline (Yuan),1214938.71
-Cost Reduction vs Q2 Baseline (%),6.45
+Total Day-Ahead Planned Energy (kWh),24719291.25
+Total Adjusted Purchase Energy (kWh),24282953.59
+Total Emergency Purchased Energy (kWh),47213.6
+Baseline Purchase Cost (Yuan),15429837.76
+Adjustment Surcharge/Breach Cost (Yuan),189028.99
+Emergency Penalty Cost (Yuan),248777.28
+Total Settlement Cost Q3 (Yuan),15867644.03
+Cost Reduction vs Q2 Optimized (Yuan),217766.4
+Cost Reduction vs Q2 Optimized (%),1.35
+Cost Reduction vs Heuristic Baseline (Yuan),2964403.43
+Cost Reduction vs Heuristic Baseline (%),15.74

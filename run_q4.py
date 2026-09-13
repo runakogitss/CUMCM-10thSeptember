@@ -1,16 +1,13 @@
 import numpy as np
 import pandas as pd
 
-from src.config import DELTA_T
 from src.data_loader import (
     load_annex1_tariffs, load_annex2_actuals, load_annex3_forecasts,
     load_annex4_dynamic_tariffs,
 )
 from src.simulator_q2 import run_q2_simulation
 from src.mpc_q3 import run_q3_simulation
-from src.export_tools import (
-    export_q4_2_result, export_q4_3_result, RESULTS_DIR,
-)
+from src.export_tools import export_q4_2_result, export_q4_3_result
 
 
 def _sensitivity(tariffs_dynamic, res_q4_2):
@@ -52,6 +49,7 @@ def main():
     res_static_2 = run_q2_simulation(tariffs_static, load_act, pv_act)
     res_static_3 = run_q3_simulation(tariffs_static, load_act, pv_act, pv_forecast)
 
+    # 仅导出官方指定的两份 .xlsx 文件
     export_q4_2_result(res_q4_2)
     export_q4_3_result(res_q4_3, tariffs_dynamic)
 
@@ -74,12 +72,6 @@ def main():
     sens = pd.DataFrame(_sensitivity(tariffs_dynamic, res_q4_2).items(), columns=["Metric", "Value"])
     print("\n=== Q4 Sensitivity Highlights (Annex 4 Peak Price Spikes) ===")
     print(sens.to_string(index=False))
-
-    summary.to_csv(f"{RESULTS_DIR}/q4_summary.csv", index=False)
-    summary.to_excel(f"{RESULTS_DIR}/q4_summary.xlsx", index=False)
-    sens.to_csv(f"{RESULTS_DIR}/q4_sensitivity.csv", index=False)
-    sens.to_excel(f"{RESULTS_DIR}/q4_sensitivity.xlsx", index=False)
-    print(f"[SUCCESS] Q4 summaries saved to: {RESULTS_DIR}/q4_summary.csv/.xlsx and q4_sensitivity.csv/.xlsx")
 
 
 if __name__ == "__main__":

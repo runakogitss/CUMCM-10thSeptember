@@ -2,39 +2,53 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-全国大学生数学建模竞赛 (CUMCM) 论文核心学术级高清配图脚本 (问题 1)
-标准规范: 国赛最高评阅标准 (GB标准量与单位、宋体+Times New Roman混排、五号/小五号字阶梯)
-输出目录: figures/ (Figure1, Figure2, Figure3，默认 600 DPI 印刷级分辨率)
+全国大学生数学建模竞赛 (CUMCM) 论文核心学术级配图脚本 (问题 1)
+输出图表: figures/ (q1_fig1, q1_fig2, q1_fig3，印刷级 600 DPI 分辨率)
+标准规范: GB 3100~3102-1993 量和单位规范、宋体+Times New Roman混排、五号/小五号字梯度
 ================================================================================
 """
 
 import os
+import sys
+from pathlib import Path
 import numpy as np
+import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
-# ==============================================================================
-# 1. 国赛标准排版与字号层级全局预设 (CUMCM Formatting Preset)
-# ==============================================================================
-# 字体族：优先匹配 Windows 系统自带宋体 (SimSun) 与 Times New Roman
+# ------------------------------------------------------------------------------
+# 动态定位工程根目录与输入输出路径
+# ------------------------------------------------------------------------------
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
+FIGURES_DIR = os.path.join(PROJECT_ROOT, "figures")
+os.makedirs(FIGURES_DIR, exist_ok=True)
+
+DEFAULT_DATA1_PATH = os.path.join(RESULTS_DIR, "result1.xlsx")
+DEFAULT_FIG1_PATH = os.path.join(FIGURES_DIR, "q1_fig1_diurnal_grid_procurement.png")
+DEFAULT_FIG2_PATH = os.path.join(FIGURES_DIR, "q1_fig2_bess_energy_balance.png")
+DEFAULT_FIG3_PATH = os.path.join(FIGURES_DIR, "q1_fig3_polar_cumulative_spectrum.png")
+
+# ------------------------------------------------------------------------------
+# 1. 国赛标准排版与字号层级全局预设
+# ------------------------------------------------------------------------------
 plt.rcParams['font.sans-serif'] = ['SimSun', 'Microsoft YaHei', 'SimHei', 'DejaVu Sans']
 plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['axes.unicode_minus'] = False  # 杜绝负号显示为乱码方块
-
-# 数学公式字体：STIX 系列，完美对接 Times New Roman 斜体
+plt.rcParams['axes.unicode_minus'] = False
 plt.rcParams['mathtext.fontset'] = 'stix'
 
-# 严格对照国赛排版标准的字号体系 (五号 10.5 pt，小五号 9.0 pt)
-plt.rcParams['font.size'] = 10.5          # 基准五号字
-plt.rcParams['axes.titlesize'] = 10.5     # 子图标题：五号加粗
-plt.rcParams['axes.labelsize'] = 10.5     # 坐标轴名称：五号
-plt.rcParams['xtick.labelsize'] = 9.0     # 刻度数字：小五号
-plt.rcParams['ytick.labelsize'] = 9.0     # 刻度数字：小五号
-plt.rcParams['legend.fontsize'] = 9.0     # 图例文字：小五号
-plt.rcParams['figure.titlesize'] = 12.0   # 总图标题：小四号
+plt.rcParams['font.size'] = 10.5
+plt.rcParams['axes.titlesize'] = 10.5
+plt.rcParams['axes.labelsize'] = 10.5
+plt.rcParams['xtick.labelsize'] = 9.0
+plt.rcParams['ytick.labelsize'] = 9.0
+plt.rcParams['legend.fontsize'] = 9.0
+plt.rcParams['figure.titlesize'] = 12.0
 
-# 坐标轴边框加固与刻度朝向 (符合科技期刊印刷规范)
 plt.rcParams['figure.facecolor'] = '#FFFFFF'
 plt.rcParams['axes.facecolor'] = '#FFFFFF'
 plt.rcParams['axes.edgecolor'] = '#000000'
@@ -50,27 +64,21 @@ plt.rcParams['ytick.major.size'] = 4.5
 plt.rcParams['xtick.major.width'] = 1.1
 plt.rcParams['ytick.major.width'] = 1.1
 
-# 数值斜体格式化 (国赛标准：数学符号与斜体数值统一)
 def italic_formatter(val, pos):
     if abs(val - int(val)) < 1e-5:
         return f"$\\mathit{{{int(val)}}}$"
-    else:
-        return f"$\\mathit{{{val:.1f}}}$"
+    return f"$\\mathit{{{val:.1f}}}$"
 
 num_fmt = FuncFormatter(italic_formatter)
 
-# 国赛专著级沉稳低饱和度配色方案
+# 低饱和度学术配色体系
 COLOR_GRID = "#2F4F4F"        # 计划购电：板岩冷灰绿
 COLOR_CHG = "#326273"         # 储能充电：低饱和深青蓝
-COLOR_DIS = "#B5533C"         # 储能放电：赤陶红（印刷高反差）
+COLOR_DIS = "#B5533C"         # 储能放电：赤陶红
 COLOR_SOC = "#4A7C59"         # 储能状态：鼠尾草绿
 COLOR_ZERO = "#ECF1F4"        # 自主零购电区间：极淡蓝灰填充
 COLOR_ACCENT = "#C87D28"      # 峰值标注：暗金/赭黄
 
-# ==============================================================================
-# 2. 定量数据输入 (源自 Q1 标准规划求解输出 result1)
-# ==============================================================================
-# 144 步购电量 (kWh / 10-min)
 grid_purchase_kwh = np.array([
     1406.6411, 1406.3299, 1407.3839, 1409.0740, 1409.8046, 576.6400,
     577.8597,  577.9939,  911.1614,  580.4154,  582.5140,  583.0740,
@@ -98,9 +106,6 @@ grid_purchase_kwh = np.array([
     1399.8738, 567.8302,  569.3586,  1403.6635, 904.9487,  573.1768
 ])
 
-time_hours = np.linspace(0, 24, 144, endpoint=False)
-
-# 储能 6 个 4 小时间隔及首末状态
 bess_periods = [
     "0:00–4:00", "4:00–8:00", "8:00–12:00",
     "12:00–16:00", "16:00–20:00", "20:00–24:00"
@@ -111,14 +116,10 @@ soc_initial_kwh = 6000.0
 soc_terminal_kwh = 6000.0
 
 
-# ==============================================================================
-# 图 1：日前计划购电时序阶梯曲线与消纳区间图 (国赛中文规范)
-# ==============================================================================
-def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.png", data_path="results/result1.xlsx"):
-    import os
-    import pandas as pd
-    
-    # 1. 动态加载求解输出文件，彻底消除硬编码与终端数据不一致的缺陷
+# ------------------------------------------------------------------------------
+# 图 1：日前计划购电时序阶梯曲线与消纳区间图
+# ------------------------------------------------------------------------------
+def plot_figure_1(save_path=DEFAULT_FIG1_PATH, data_path=DEFAULT_DATA1_PATH):
     if os.path.exists(data_path):
         df_grid = pd.read_excel(data_path, sheet_name="计划购电量")
         purchase_data = df_grid.iloc[:, 1].dropna().values.astype(float)
@@ -130,7 +131,6 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
     
     fig, ax = plt.subplots(figsize=(8.2, 4.2), dpi=600)
     
-    # 2. 微网自主消纳背景填充
     zero_mask = (purchase_data == 0.0)
     in_zero = False
     start_t = 0.0
@@ -145,7 +145,6 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
     if in_zero:
         ax.axvspan(start_t, 24.0, color=COLOR_ZERO, alpha=0.8, lw=0)
 
-    # 3. 阶梯购电曲线
     time_steps = np.append(t_hours, 24.0)
     proc_steps = np.append(purchase_data, purchase_data[-1])
     
@@ -153,7 +152,6 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
             label="计划购电量 $Q_{\\mathrm{grid}}(t)$")
     ax.fill_between(time_steps, 0, proc_steps, step='post', color=COLOR_GRID, alpha=0.18, lw=0)
 
-    # 4. 峰值标注（抬升至 y=1475 空白层，避让右侧阶梯波形）
     max_val = np.max(purchase_data)
     max_idx = np.argmax(purchase_data)
     max_t = t_hours[max_idx]
@@ -165,7 +163,6 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
                                 connectionstyle="arc3,rad=-0.1"),
                 fontsize=9.0, va='bottom')
 
-    # 5. 坐标轴格式化
     ax.set_xlim(-0.1, 24.1)
     ax.set_ylim(0, 1680)
     ax.set_xticks(np.arange(0, 25, 2))
@@ -180,7 +177,6 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
     ax.grid(True, linestyle=":", alpha=0.5)
     ax.legend(loc="upper right", frameon=True, edgecolor='#000000', framealpha=1.0, facecolor='#FFFFFF')
     
-    # 6. 统计框动态取值（精准绑定 59482.70 kWh）
     total_kwh = np.sum(purchase_data)
     zero_count = int(np.sum(zero_mask))
     zero_ratio = (zero_count / float(n_steps)) * 100.0
@@ -196,10 +192,13 @@ def plot_figure_1(save_path="figures/Figure1_Diurnal_Grid_Procurement_Profile.pn
     plt.tight_layout()
     plt.savefig(save_path, dpi=600)
     plt.close()
-    print(f"[SUCCESS] 图 1 动态更新完成: {save_path} (累计购电量: {total_kwh:.2f} kWh)")
+    print(f"[通过 PASS] 问题一 图 1 已成功生成: {save_path}")
 
 
-def plot_figure_2(save_path="figures/Figure2_BESS_Energy_Balance_Diverging.png"):
+# ------------------------------------------------------------------------------
+# 图 2：储能系统分时段双向吞吐与首末闭环柱状图
+# ------------------------------------------------------------------------------
+def plot_figure_2(save_path=DEFAULT_FIG2_PATH):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.5, 4.0), dpi=600,
                                    gridspec_kw={'width_ratios': [3.5, 1.2]})
     
@@ -208,7 +207,6 @@ def plot_figure_2(save_path="figures/Figure2_BESS_Energy_Balance_Diverging.png")
     
     bars_chg = ax1.bar(x, charge_kwh, width=bar_width, color=COLOR_CHG, edgecolor='#000000',
                        lw=1.0, label="充电量 $E_{\\mathrm{ch}}$ (+)")
-    # 修复字符集方块乱码：使用 LaTeX 形式的 ($-$)
     bars_dis = ax1.bar(x, -discharge_kwh, width=bar_width, color=COLOR_DIS, edgecolor='#000000',
                        lw=1.0, label="放电量 $E_{\\mathrm{dis}}$ ($-$)")
     
@@ -260,33 +258,23 @@ def plot_figure_2(save_path="figures/Figure2_BESS_Energy_Balance_Diverging.png")
     plt.tight_layout()
     plt.savefig(save_path, dpi=600)
     plt.close()
-    print(f"[SUCCESS] 图 2 格式微调完成: {save_path}")
+    print(f"[通过 PASS] 问题一 图 2 已成功生成: {save_path}")
 
 
-# ==============================================================================
-# 图 3：24小时极坐标昼夜相图与经验分布谱 (国赛中文规范)
-# ==============================================================================
-# ==============================================================================
-# 图 3：24小时极坐标昼夜相图与经验分布谱 (动态联动修复版)
-# ==============================================================================
-def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum.png", data_path="results/result1.xlsx"):
-    import os
-    import pandas as pd
-
-    # 1. 动态读取结果文件，消除硬编码漏项与脱节问题
+# ------------------------------------------------------------------------------
+# 图 3：24小时极坐标昼夜相图与经验分布谱
+# ------------------------------------------------------------------------------
+def plot_figure_3(save_path=DEFAULT_FIG3_PATH, data_path=DEFAULT_DATA1_PATH):
     if os.path.exists(data_path):
         df_grid = pd.read_excel(data_path, sheet_name="计划购电量")
         purchase_data = df_grid.iloc[:, 1].dropna().values.astype(float)
     else:
         purchase_data = grid_purchase_kwh.copy()
 
-    n_steps = len(purchase_data)  # 严格 144 步
-    
+    n_steps = len(purchase_data)
     fig = plt.figure(figsize=(9.0, 4.2), dpi=600)
     
-    # --------------------------------------------------------------------------
-    # 子图 (a)：极坐标时钟相位图 (顺时针，0:00 位于正上方)
-    # --------------------------------------------------------------------------
+    # 子图 (a)：极坐标时钟相位图
     ax_polar = fig.add_subplot(1, 2, 1, projection='polar')
     theta = np.linspace(0, 2 * np.pi, n_steps, endpoint=False)
     ax_polar.set_theta_direction(-1)
@@ -305,7 +293,6 @@ def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum
     ax_polar.set_xticks(clock_ticks)
     ax_polar.set_xticklabels(clock_labels, fontsize=9.0)
     
-    # 径向刻度精简至 3 个稀疏刻度，角度旋转至 105° 空白区，带白底衬垫防止与网格线黏连
     ax_polar.set_yticks([500, 1000, 1500])
     ax_polar.yaxis.set_major_formatter(num_fmt)
     ax_polar.set_rlabel_position(105)
@@ -314,9 +301,7 @@ def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum
         
     ax_polar.set_title("(a) 24小时极坐标购电昼夜节律相图", loc='left', fontweight='bold', pad=14)
     
-    # --------------------------------------------------------------------------
-    # 子图 (b)：ECDF 累积概率分布曲线 (统一 58 个零购电时步及 40.3% 占比)
-    # --------------------------------------------------------------------------
+    # 子图 (b)：ECDF 累积概率分布曲线
     ax_ecdf = fig.add_subplot(1, 2, 2)
     sorted_purchase = np.sort(purchase_data)
     ecdf = np.arange(1, n_steps + 1) / float(n_steps)
@@ -324,7 +309,6 @@ def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum
     ax_ecdf.step(sorted_purchase, ecdf, where='post', color=COLOR_GRID, lw=1.8,
                  label="经验累积概率分布 (ECDF)")
     
-    # 加入 1e-4 浮点数容差判定，精确锁定 58 个时步与 40.3% 占比
     zero_mask = (sorted_purchase <= 1e-4)
     zero_count = int(np.sum(zero_mask))
     zero_pct = zero_count / float(n_steps)
@@ -348,19 +332,16 @@ def plot_figure_3(save_path="figures/Figure3_Polar_Phase_and_Cumulative_Spectrum
     plt.tight_layout()
     plt.savefig(save_path, dpi=600)
     plt.close()
-    print(f"[SUCCESS] 图 3 动态更新完成: {save_path} (零购电时步: {zero_count}/{n_steps}, 占比: {zero_pct*100:.1f}%)")
+    print(f"[通过 PASS] 问题一 图 3 已成功生成: {save_path}")
 
-# ==============================================================================
-# 4. 执行入口
-# ==============================================================================
+
 if __name__ == "__main__":
-    os.makedirs("figures", exist_ok=True)
     print("==================================================================")
-    print("正在按 CUMCM 全国一等奖标准生成高清论文核心图表...")
+    print("正在生成问题一论文核心学术图表...")
     print("==================================================================")
-    plot_figure_1("figures/Figure1_Diurnal_Grid_Procurement_Profile.png")
-    plot_figure_2("figures/Figure2_BESS_Energy_Balance_Diverging.png")
-    plot_figure_3("figures/Figure3_Polar_Phase_and_Cumulative_Spectrum.png")
+    plot_figure_1(DEFAULT_FIG1_PATH, DEFAULT_DATA1_PATH)
+    plot_figure_2(DEFAULT_FIG2_PATH)
+    plot_figure_3(DEFAULT_FIG3_PATH, DEFAULT_DATA1_PATH)
     print("==================================================================")
-    print("全套配图已成功导出至 figures/ 目录 (600 DPI, 符合国赛格式规范)")
+    print(f"问题一全套图表已成功归档至: {FIGURES_DIR}")
     print("==================================================================")

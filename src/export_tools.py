@@ -10,7 +10,7 @@ from src.config import DELTA_T, E_INIT, STEPS_PER_DAY
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "Annex5_Templates")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
 
-# 4-hour aggregation windows: (start_step, end_step) exclusive end.
+# 4 小时聚合时间窗区间 (起始步，结束步)
 FOUR_HOUR_WINDOWS = [
     (0, 24), (24, 48), (48, 72), (72, 96), (96, 120), (120, 144),
 ]
@@ -48,8 +48,8 @@ def _ensure_dir(path):
 
 def export_q1_result(res):
     """
-    Populates the blank Annex 5 result1 template and saves to results/result1.xlsx.
-    Never overwrites data/raw templates.
+    填充官方 Annex 5 result1.xlsx 模板并保存至 results/result1.xlsx。
+    只输出官方 .xlsx 文件。
     """
     template_path = os.path.join(TEMPLATES_DIR, "result1.xlsx")
     out_path = os.path.join(RESULTS_DIR, "result1.xlsx")
@@ -57,10 +57,12 @@ def export_q1_result(res):
 
     wb = load_workbook(template_path)
 
+    # 1. 计划购电量
     ws1 = wb["计划购电量"]
     for t in range(len(res["p_grid_kw"])):
         ws1.cell(row=2 + t, column=2, value=float(round(res["p_grid_kw"][t] * DELTA_T, 4)))
 
+    # 2. 充放电量
     ws2 = wb["充放电量"]
     for i, (a, b) in enumerate(FOUR_HOUR_WINDOWS):
         chg = float(np.sum(res["p_chg_kw"][a:b]) * DELTA_T)
@@ -68,6 +70,7 @@ def export_q1_result(res):
         ws2.cell(row=2 + i, column=2, value=float(round(chg, 4)))
         ws2.cell(row=2 + i, column=3, value=float(round(dis, 4)))
 
+    # 3. 首末电量闭环填入
     for r in range(1, ws2.max_row + 1):
         for c in range(1, ws2.max_column + 1):
             val = str(ws2.cell(row=r, column=c).value).strip()
@@ -78,22 +81,11 @@ def export_q1_result(res):
 
     wb.save(out_path)
     print(f"[SUCCESS] Q1 deliverables correctly mapped to: {out_path}")
-
-    flat_df = pd.DataFrame({
-        "P_grid_kWh": np.asarray(res["p_grid_kw"]) * DELTA_T,
-        "P_chg_kWh": np.asarray(res["p_chg_kw"]) * DELTA_T,
-        "P_dis_kWh": np.asarray(res["p_dis_kw"]) * DELTA_T,
-        "P_curt_kWh": np.asarray(res["p_curt_kw"]) * DELTA_T,
-        "E_bat_kWh": np.asarray(res["e_bat_kwh"]),
-    })
-    csv_path = os.path.join(RESULTS_DIR, "result1.csv")
-    flat_df.to_csv(csv_path, index=False)
-    print(f"[SUCCESS] Q1 long-format series saved to: {csv_path}")
     return out_path
 
 
 def _fill_plan_sheet(ws, num_days, steps, p_series, daily_energy, daily_cost):
-    """Fills a 计划购电量 / 调整购电量 style sheet (date + 144 kWh steps + daily totals)."""
+    """填充【计划购电量】/【调整购电量】工作表"""
     for d in range(num_days):
         row = 2 + d
         day = p_series[d * steps:(d + 1) * steps]
@@ -106,7 +98,7 @@ def _fill_plan_sheet(ws, num_days, steps, p_series, daily_energy, daily_cost):
 
 
 def _fill_charge_discharge_sheet(ws, num_days, steps, p_chg, p_dis, e_bat, e_day_start):
-    """Fills a 充放电量 sheet: 6 four-hour blocks per day with 0:00/24:00 SOC."""
+    """填充【充放电量】工作表: 每日 6 个 4 小时段与 0:00/24:00 荷电状态"""
     if ws.max_row >= 2:
         ws.delete_rows(2, ws.max_row)
     row = 2
@@ -120,7 +112,6 @@ def _fill_charge_discharge_sheet(ws, num_days, steps, p_chg, p_dis, e_bat, e_day
         )
         for i, (a, b) in enumerate(FOUR_HOUR_WINDOWS):
             r = row + i
-            # 官方模板规范：仅当天第 1 行显示日期，其余 5 行留空
             if i == 0:
                 ws.cell(row=r, column=1, value=date_str)
             ws.cell(row=r, column=2, value=FOUR_HOUR_LABELS[i])
@@ -136,7 +127,7 @@ def _fill_charge_discharge_sheet(ws, num_days, steps, p_chg, p_dis, e_bat, e_day
 
 
 def _fill_emergency_sheet(ws, num_days, steps, p_em):
-    """Fills a 紧急购电量 event ledger (only actual events, 3 template columns)."""
+    """填充【紧急购电量】真实事件流水表"""
     if ws.max_row >= 2:
         ws.delete_rows(2, ws.max_row)
     row = 2
@@ -154,11 +145,11 @@ def _fill_emergency_sheet(ws, num_days, steps, p_em):
 
 def export_q2_result(res):
     """
-    Populates the blank Annex 5 result2 template and saves to results/Q2_optimized.xlsx
-    plus a flat Q2_optimized.csv and official result2.xlsx.
+    填充官方 Annex 5 result2.xlsx 模板并唯一保存至 results/result2.xlsx。
+    彻底移除 Q2_optimized.xlsx 与 .csv 文件生成。
     """
     template_path = os.path.join(TEMPLATES_DIR, "result2.xlsx")
-    out_path = os.path.join(RESULTS_DIR, "Q2_optimized.xlsx")
+    out_path = os.path.join(RESULTS_DIR, "result2.xlsx")
     _ensure_dir(RESULTS_DIR)
 
     wb = load_workbook(template_path)
@@ -179,26 +170,13 @@ def export_q2_result(res):
     _fill_emergency_sheet(wb["紧急购电量"], num_days, steps, p_em)
 
     wb.save(out_path)
-    print(f"[SUCCESS] Q2 optimized deliverables correctly mapped to: {out_path}")
-
-    res2_path = os.path.join(RESULTS_DIR, "result2.xlsx")
-    wb.save(res2_path)
-    print(f"[SUCCESS] Q2 official deliverables correctly mapped to: {res2_path}")
-
-    long_df = pd.DataFrame({
-        "P_plan_kWh": p_plan,
-        "P_em_kWh": p_em,
-        "E_bat_kWh": e_bat,
-    })
-    csv_path = os.path.join(RESULTS_DIR, "Q2_optimized.csv")
-    long_df.to_csv(csv_path, index=False)
-    print(f"[SUCCESS] Q2 optimized long-format series saved to: {csv_path}")
+    print(f"[SUCCESS] Q2 official deliverables correctly mapped to: {out_path}")
     return out_path
 
 
 def export_q3_result(res, tariffs_matrix):
     """
-    Populates the Annex 5 result3 template (4 sheets) with Question 3 rolling MPC outputs.
+    填充官方 Annex 5 result3.xlsx 模板 (4 个工作表)。只输出 result3.xlsx。
     """
     template_path = os.path.join(TEMPLATES_DIR, "result3.xlsx")
     out_path = os.path.join(RESULTS_DIR, "result3.xlsx")
@@ -253,30 +231,11 @@ def export_q3_result(res, tariffs_matrix):
         wb.save(fallback_xlsx)
         print(f"[WARNING] result3.xlsx is open; results saved to: {fallback_xlsx}")
 
-    long_df = pd.DataFrame({
-        "P_plan_kWh": p_plan,
-        "P_adj_kWh": p_adj,
-        "P_em_kWh": p_em,
-        "P_chg_kWh": p_chg,
-        "P_dis_kWh": p_dis,
-        "E_bat_kWh": e_bat,
-    })
-    csv_path = os.path.join(RESULTS_DIR, "result3.csv")
-    try:
-        long_df.to_csv(csv_path, index=False)
-        print(f"[SUCCESS] Q3 long-format series saved to: {csv_path}")
-    except PermissionError:
-        fallback_csv = os.path.join(RESULTS_DIR, "result3_generated.csv")
-        long_df.to_csv(fallback_csv, index=False)
-        print(f"[WARNING] result3.csv is open; saved to: {fallback_csv}")
-
     return out_path
 
 
 def export_q4_2_result(res):
-    """
-    Populates the Annex 5 result4-2 template with the dynamic-tariff two-stage Q4-2 results.
-    """
+    """填充官方 Annex 5 result4-2.xlsx 模板。只输出 result4-2.xlsx。"""
     template_path = os.path.join(TEMPLATES_DIR, "result4-2.xlsx")
     out_path = os.path.join(RESULTS_DIR, "result4-2.xlsx")
     _ensure_dir(RESULTS_DIR)
@@ -300,22 +259,11 @@ def export_q4_2_result(res):
 
     wb.save(out_path)
     print(f"[SUCCESS] Q4-2 deliverables correctly mapped to: {out_path}")
-
-    long_df = pd.DataFrame({
-        "P_plan_kWh": p_plan,
-        "P_em_kWh": p_em,
-        "E_bat_kWh": e_bat,
-    })
-    csv_path = os.path.join(RESULTS_DIR, "result4-2.csv")
-    long_df.to_csv(csv_path, index=False)
-    print(f"[SUCCESS] Q4-2 long-format series saved to: {csv_path}")
     return out_path
 
 
 def export_q4_3_result(res, tariffs_matrix):
-    """
-    Populates the Annex 5 result4-3 template with the dynamic-tariff rolling MPC results.
-    """
+    """填充官方 Annex 5 result4-3.xlsx 模板。只输出 result4-3.xlsx。"""
     template_path = os.path.join(TEMPLATES_DIR, "result4-3.xlsx")
     out_path = os.path.join(RESULTS_DIR, "result4-3.xlsx")
     _ensure_dir(RESULTS_DIR)
@@ -363,23 +311,11 @@ def export_q4_3_result(res, tariffs_matrix):
 
     wb.save(out_path)
     print(f"[SUCCESS] Q4-3 deliverables correctly mapped to: {out_path}")
-
-    long_df = pd.DataFrame({
-        "P_plan_kWh": p_plan,
-        "P_adj_kWh": p_adj,
-        "P_em_kWh": p_em,
-        "E_bat_kWh": e_bat,
-    })
-    csv_path = os.path.join(RESULTS_DIR, "result4-3.csv")
-    long_df.to_csv(csv_path, index=False)
-    print(f"[SUCCESS] Q4-3 long-format series saved to: {csv_path}")
     return out_path
 
 
 def verify_q2_export(out_path, total_em_kwh=None, total_cost=None):
-    """
-    Automated health check on the exported result2 workbook against official template specs.
-    """
+    """针对导出的 result2.xlsx 进行官方母版拓扑与数值健康检查"""
     checks = []
 
     d1 = pd.read_excel(out_path, sheet_name="计划购电量", header=None)
@@ -391,7 +327,6 @@ def verify_q2_export(out_path, total_em_kwh=None, total_cost=None):
     d2 = pd.read_excel(out_path, sheet_name="充放电量", header=None)
     checks.append(("Sheet2: 2004 data rows", d2.shape[0] - 1, 2004))
     checks.append(("Sheet2: 6 cols", d2.shape[1], 6))
-    # 官方母版规范：334 天中每日仅第 1 行填日期，其余 5 行留空，故恰有 334*5 = 1670 个 NaT
     checks.append(("Sheet2: NaT in Column A (日期)",
                    int(d2.iloc[1:, 0].isna().sum()), 1670))
 
@@ -417,28 +352,3 @@ def verify_q2_export(out_path, total_em_kwh=None, total_cost=None):
         print(f"  [{'PASS' if ok else 'FAIL'}] {name}: got={got} expect={want}")
     print(f"  >>> {'ALL CHECKS PASSED' if all_pass else 'SOME CHECKS FAILED'} <<<")
     return all_pass
-
-
-def export_result(file_name, data_dict):
-    """
-    Legacy general exporter kept for full backwards-compatibility.
-    """
-    _ensure_dir(RESULTS_DIR)
-    base, ext = os.path.splitext(file_name)
-    df = pd.DataFrame(data_dict)
-    try:
-        df.to_excel(os.path.join(RESULTS_DIR, file_name), index=False)
-        print(f"[SUCCESS] Formatted energy outputs saved to: {os.path.join(RESULTS_DIR, file_name)}")
-    except PermissionError:
-        fallback_xlsx = os.path.join(RESULTS_DIR, f"{base}_generated.xlsx")
-        df.to_excel(fallback_xlsx, index=False)
-        print(f"[WARNING] {file_name} is open in Excel; results saved to: {fallback_xlsx}")
-
-    try:
-        csv_path = os.path.join(RESULTS_DIR, f"{base}.csv")
-        df.to_csv(csv_path, index=False)
-        print(f"[SUCCESS] Formatted energy outputs saved to: {csv_path}")
-    except PermissionError:
-        fallback_csv = os.path.join(RESULTS_DIR, f"{base}_generated.csv")
-        df.to_csv(fallback_csv, index=False)
-        print(f"[WARNING] {file_name} csv is open; saved to: {fallback_csv}")

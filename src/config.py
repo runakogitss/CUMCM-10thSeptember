@@ -22,11 +22,14 @@ PENALTY_REDUCE = 0.5      # Intra-day reduction breach fee ratio (Q3)
 FORECAST_WINDOW_DAYS = 7    # Rolling look-back window for the 0:00 forecast
 SAFETY_BUFFER_ALPHA = 1.10
 
-# Question 2 two-stage robust & arbitrage parameters
-# 锁定黄金基准三参数：严格复现论文 16,085,410.43 元
+# Question 2 robust-planning parameters
 ROBUST_Z = 0.625
-E_PLAN_MIN = 1700.0         # soft lower SOC bound in the Stage-1 LP (reserve above E_MIN)
-E_TERMINAL_TARGET = 4000.0  # cost-calibrated terminal SOC keeping Q2 cost at 16.08M
+
+# Planning-stage battery reserve threshold (kWh)
+E_PLAN_MIN = 1700.0
+
+# Desired minimum terminal battery reserve for day-ahead planning (kWh)
+E_TERMINAL_TARGET = 4000.0
 WARMUP_DAYS = 31            # January 1-31 prior warm-up window before Feb 1
 
 # Simulation calendar (2025)

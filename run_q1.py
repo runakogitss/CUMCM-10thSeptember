@@ -1,7 +1,7 @@
 import pandas as pd
 
 from src.solver_q1 import solve_q1
-from src.export_tools import export_q1_result, RESULTS_DIR
+from src.export_tools import export_q1_result
 
 
 def main():
@@ -26,10 +26,6 @@ def main():
     })
     print("\n=== Question 1 Summary ===")
     print(summary.to_string(index=False))
-
-    summary.to_csv(f"{RESULTS_DIR}/q1_summary.csv", index=False)
-    summary.to_excel(f"{RESULTS_DIR}/q1_summary.xlsx", index=False)
-    print(f"[SUCCESS] Q1 summary saved to: {RESULTS_DIR}/q1_summary.csv and .xlsx")
 
 
 if __name__ == "__main__":

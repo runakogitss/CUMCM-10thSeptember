@@ -1,0 +1,27 @@
+﻿Metric,Value
+Q1 total purchase (kWh),59482.7
+Q1 total cost (Yuan),35126.95
+Q1 terminal SOC (kWh),6000.0
+Q2 baseline total cost (Yuan),18832047.46
+Q2 optimized total cost (Yuan),16085410.43
+Q2 cost reduction (Yuan),2746637.03
+Q2 cost reduction (%),14.58
+Q2 planned purchase (kWh),24764475.21
+Q2 emergency purchase (kWh),105491.12
+Q2 baseline Jan warm-up SOC (kWh),10800.0
+Q2 optimized Jan warm-up SOC (kWh),10723.37
+Q3 planned purchase (kWh),24856759.56
+Q3 adjusted purchase (kWh),24267647.05
+Q3 emergency purchase (kWh),52663.27
+Q3 total settlement cost (Yuan),15808625.64
+Q3 saving vs Q2 (Yuan),276784.79
+Q3 saving vs Q2 (%),1.72
+Q3 MPC fallback count,0.0
+Q4-2 total cost (Yuan),16244576.3
+Q4-2 emergency purchase (kWh),109461.66
+Q4-3 total cost (Yuan),15959374.62
+Q4-3 emergency purchase (kWh),51420.02
+Q4-3 saving vs Q4-2 (Yuan),285201.67
+Q4-3 saving vs Q4-2 (%),1.76
+Q4 emergency reduction (%),53.02
+Q4-3 MPC fallback count,0.0
